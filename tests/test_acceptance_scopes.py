@@ -1,5 +1,6 @@
 """Scope receipts are software evidence, never whole-instrument qualification."""
 from copy import deepcopy
+import json
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,25 @@ from temsim.acceptance import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_every_test_file_has_a_ci_scope_or_an_explicit_exclusion():
+    # Inspect names only: importing or collecting hundreds of historical
+    # unscoped modules would turn this policy check into a full test run.
+    actual = {path.relative_to(ROOT).as_posix()
+              for path in (ROOT / "tests").rglob("test_*.py")}
+    scoped = set().union(*(set(scope_test_files(scope)) for scope in ACCEPTANCE_SCOPES))
+    inventory = json.loads((ROOT / "tests" / "ci_exclusions.json").read_text(encoding="utf-8"))
+    assert inventory["schema"] == "bounded-ci-exclusions-v1"
+    reasons, excluded = inventory["reasons"], inventory["files"]
+    assert reasons and all(isinstance(text, str) and text.strip() for text in reasons.values())
+    assert all(reason in reasons for reason in excluded.values()), "Every excluded file needs a reason"
+    assert not (scoped & set(excluded)), "Remove exclusions when admitting tests to a CI scope"
+    assert not ((scoped | set(excluded)) - actual), "Remove deleted/renamed paths from the CI inventory"
+    assert actual == scoped | set(excluded), (
+        "New tests need an acceptance scope or an explicit exclusion reason: "
+        f"{sorted(actual - scoped - set(excluded))}"
+    )
 
 
 def receipt_for(scope):
@@ -62,7 +82,8 @@ def test_new_lanes_explicitly_cover_reviewed_feature_and_runtime_boundaries():
         "gun-fields": {"test_closed_gun_field.py", "test_continuous_tip_curvature.py",
                        "test_tip_curvature_comparison.py", "test_axisymmetric_cut_field.py",
                        "test_diagnostic_field_identity.py", "test_diagnostic_gun_domains.py",
-                       "test_grounded_field_identity.py", "test_instrument_electric.py"},
+                       "test_grounded_field_identity.py", "test_instrument_electric.py",
+                       "test_recording_vacuum_endpoint.py"},
         "electron-execution": {"test_magnetic_test_particle.py", "test_test_electron_scene.py",
             "test_test_electron_execution.py", "test_test_electron_compiled.py",
             "test_test_electron_intercepts.py", "test_closed_gun_execution.py",
@@ -90,7 +111,14 @@ def test_new_lanes_explicitly_cover_reviewed_feature_and_runtime_boundaries():
             "test_beam_analysis_modes.py", "test_transverse_source_tracking.py", "test_filter_plane_analysis.py",
             "test_ray_flight_time_colours.py", "test_transverse_plot_sizes.py", "test_transverse_plot_size_persistence.py",
             "test_energy_filter_mechanical_clipping.py", "test_energy_filter_model_3d.py",
-            "test_energy_filter_workspace_views.py", "test_live_beam_refresh.py"},
+            "test_energy_filter_workspace_views.py", "test_live_beam_refresh.py",
+            "test_assembly_section.py", "test_assembly_section_page.py",
+            "test_current_page_tabs.py", "test_ray_compact_layout.py"},
+        "lens-geometry": {"test_lens_pose_capture.py", "test_lens_pose_rendering.py",
+            "test_lens_pose_clipping.py", "test_lens_pose_transport.py", "test_rigid_lens_field_registration.py"},
+        "receiver-imaging": {"test_receiver_image.py", "test_receiver_scan.py",
+            "test_receiver_scan_link.py", "test_receiver_transport_integration.py",
+            "test_receiver_imaging_gui.py", "test_receiver_playback_gui.py"},
         "particle-continuation": {"test_particle_sections.py", "test_particle_section_io.py",
             "test_completed_particle_sections.py", "test_material_particle_sections.py",
             "test_material_section_resume.py", "test_particle_section_eds_archive.py",
@@ -113,7 +141,13 @@ def test_new_lanes_explicitly_cover_reviewed_feature_and_runtime_boundaries():
             "test_tip_wave_pipeline.py", "test_column_wave_transport.py", "test_coherent_beam_gui.py",
             "test_column_wave_electric.py", "test_tip_gun_wave.py", "test_tip_gun_shared_fields.py",
             "test_electrostatic_column_transport.py", "test_wave_grid.py",
-            "test_planar_gun_field.py", "test_canonical_action.py", "test_planar_tip_boundary.py", "test_driven_tip_gun.py"},
+            "test_planar_gun_field.py", "test_canonical_action.py", "test_planar_tip_boundary.py", "test_driven_tip_gun.py",
+            "test_posed_lens_wave.py", "test_posed_wave_hardware.py", "test_tilted_column_wave.py",
+            "test_wave_magnetic_residual.py", "test_main_column_pose.py", "test_dpa_plate_thickness.py", "test_posed_column_fields.py",
+            "test_direct_alignment_pose.py",
+            "test_posed_multipole_wave.py", "test_tilted_multipole_column.py",
+            "test_posed_wave_aperture.py", "test_tilted_aperture_column.py",
+            "test_posed_aberration_wave.py", "test_tilted_spherical_column.py"},
     }
     for scope, expected in required.items():
         assert {Path(path).name for path in scope_test_files(scope)} == expected

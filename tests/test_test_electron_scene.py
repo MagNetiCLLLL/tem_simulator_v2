@@ -264,3 +264,30 @@ def test_open_blanker_keeps_physical_stop_without_requiring_unknown_active_field
     fraction, reason = scene.diagnostic_segment_stop((.0002, 0., .008), (.0002, 0., .01))
     assert fraction == pytest.approx(.5)
     assert reason == "aperture:nanopulser_aperture"
+
+
+def test_child_aperture_captures_parent_pose_for_forward_and_backward_contacts(monkeypatch):
+    from temsim.physics.aperture_clipping import clip_segment
+    from temsim.test_electron_intercepts import prepare_compiled_intercepts
+    parent_data = dict(key="lens", mechanical_profile="magnetic_lens_assembly",
+                       local_center_z_mm=5., offset_x_mm=.2, rotation_y_mrad=100.)
+    parts = (SimpleNamespace(key="lens", module_key="test", center_z_mm=5., data=parent_data),
+             SimpleNamespace(key="ap", module_key="test", center_z_mm=6.,
+                 data=dict(key="ap", parent_key="lens", local_center_z_mm=6.)))
+    assembly = SimpleNamespace(parts=parts, vacuum_bore_segments=())
+    aperture = SimpleNamespace(key="ap", enabled=True, installed=True, z_mm=6.,
+                               radius_mm=.05, offset_x_mm=0., offset_y_mm=0.)
+    state = SimpleNamespace(_resolved_assembly=assembly, apertures=[aperture])
+    scene = fixture_scene(monkeypatch, apertures=(aperture,), extra_state={"_resolved_assembly": assembly})
+    assert prepare_compiled_intercepts(scene) is None
+    x = np.zeros((2, 1))
+    alive, stops, _ = clip_segment(state, [4., 8.], x, x)
+    assert not alive[0]
+    start, end = np.array((0., 0., .004)), np.array((0., 0., .008))
+    forward = scene.diagnostic_segment_stop(start, end)
+    backward = scene.diagnostic_segment_stop(end, start)
+    assert forward[1] == backward[1] == "aperture:ap"
+    assert 4.+forward[0]*4. == pytest.approx(stops[0])
+    assert backward[0] == pytest.approx(1.-forward[0])
+    parent_data["offset_x_mm"] = -.4
+    assert scene.diagnostic_segment_stop(start, end) == forward

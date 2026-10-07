@@ -136,16 +136,16 @@ class PartModelDocument:
             supports_physical_lens_pose, validate_physical_lens_pose,
         )
         if not supports_physical_lens_pose(part):
-            raise ValueError("Edit the physical magnetic lens assembly to move its field")
+            raise ValueError("Edit a supported main-column component, or the physical host of a shared channel")
         if not isinstance(values, Mapping) or set(values) - set(PHYSICAL_POSE_FIELDS):
-            raise ValueError("Choose physical lens offsets in mm or rotations in mrad")
+            raise ValueError("Choose component offsets in mm or rotations in mrad")
         values = {field: cls._finite_dimension(value) for field, value in values.items()}
         migrate_legacy_lens_pose(part)
         part.update(values)
         validate_physical_lens_pose(part)
 
     def set_physical_pose(self, key, values):
-        """Stage one magnetic assembly pose, preserving its field excitation."""
+        """Stage one main-column component pose without changing excitation."""
         part = deepcopy(self.part(key))
         self._set_physical_pose_values(part, values)
         self._commit_part(key, part)
@@ -237,6 +237,12 @@ class PartModelDocument:
         from temsim.lens_pose import PHYSICAL_POSE_FIELDS, supports_physical_lens_pose
         if len(path) == 3 and field in PHYSICAL_POSE_FIELDS and supports_physical_lens_pose(part):
             self.set_physical_pose(path[1], {field: value})
+            return
+        from temsim.part_model_apertures import has_optional_plate_thickness, validate_optional_plate_thickness
+        if len(path) == 3 and field == "plate_thickness_mm" and has_optional_plate_thickness(part):
+            part[field] = value
+            validate_optional_plate_thickness(part)
+            self._commit_part(path[1], part)
             return
         if field == "model_3d":
             from temsim.part_model_features import validate_model_3d

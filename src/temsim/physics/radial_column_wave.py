@@ -316,11 +316,18 @@ def _round_column_prefix(state, checkpoint, stop_z_mm, *, maximum_step_mm=.5,
                         initial_samples=65536, maximum_samples=4_194_304,
                         cancelled=lambda: False, progress_callback=None):
     """Execute the maximal round prefix; return before the first 2-D effect."""
-    from temsim.physics.column_wave import _prepare_column, _column_transports
+    from temsim.physics.column_wave import _prepare_column, _column_transports, _PlacedAperture
+    from temsim.physics.posed_wave_hardware import PosedWaveBore
     from temsim.physics.canonical_action import CanonicalPath
     from temsim.optics.electron_gun.tip_coherence import wavelength_m
     from temsim.simulation_modes import is_ideal
     plan, radii, stops, owners = _prepare_column(state, checkpoint.plane_z_mm, stop_z_mm, maximum_step_mm)
+    if (getattr(plan, "mapped_fields", ()) or any(
+            isinstance(item, (PosedWaveBore, _PlacedAperture))
+            for items in stops.values() for item in items)):
+        # A radial field has no azimuthal phase, shifted centre or oblique
+        # material boundary. Preserve the executed 2-D input for that path.
+        return checkpoint.plane_z_mm, (), {"reason": "Placed lenses/hardware require the two-dimensional column operator"}
     end_index = len(plan.z_mm)-1
     for name in ("midpoint_sx_m2", "midpoint_sy_m2", "midpoint_sxy_m2", "midpoint_hex_normal_m3", "midpoint_hex_skew_m3"):
         active = np.flatnonzero(getattr(plan, name))

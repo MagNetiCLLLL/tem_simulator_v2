@@ -39,6 +39,19 @@ class _Bore:
     upper_m: float
     inner_m: float
     outer_m: float = math.inf
+    registration: object | None = None
+
+    @property
+    def start_z_mm(self):
+        return self.lower_m * 1e3
+
+    @property
+    def end_z_mm(self):
+        return self.upper_m * 1e3
+
+    @property
+    def inner_diameter_mm(self):
+        return self.inner_m * 2e3
 
 
 def _quadratic_roots(a, b, c):
@@ -59,6 +72,15 @@ def _bore_intercept(start, end, bore):
     This handles backward, transverse and thin-shell crossings without sorting
     the electron history by Z or relying only on its final position.
     """
+    if bore.registration is not None:
+        # Use the production ray bore law, including its rigid local frame.
+        # Posed column bores are infinite outside their opening; finite gun
+        # electrode shells retain the chronological shell law below.
+        from temsim.physics.column_wall import _posed_bore_stop_fractions
+        fraction = _posed_bore_stop_fractions(
+            np.asarray(start)[None, :] * 1e3, np.asarray(end)[None, :] * 1e3,
+            bore, bore.registration)[0]
+        return float(fraction) if np.isfinite(fraction) else None
     if max(start[2], end[2]) < bore.lower_m or min(start[2], end[2]) > bore.upper_m:
         return None
     delta = end-start
@@ -108,9 +130,16 @@ def _active_apertures(state, gun):
 def _physical_bores(state, gun, electric_base):
     rows = []
     assembly = getattr(state, "_resolved_assembly", None)
-    for segment in getattr(assembly, "vacuum_bore_segments", ()):
+    from temsim.physics.column_wall import _partition_vacuum_segments
+    stationary, posed = _partition_vacuum_segments(
+        state, getattr(assembly, "vacuum_bore_segments", ()))
+    for segment in stationary:
         rows.append(_Bore("column_wall", float(segment.start_z_mm)*1e-3,
                           float(segment.end_z_mm)*1e-3, float(segment.inner_diameter_mm)*.5e-3))
+    for segment, registration in posed:
+        rows.append(_Bore("column_wall", float(segment.start_z_mm)*1e-3,
+                          float(segment.end_z_mm)*1e-3, float(segment.inner_diameter_mm)*.5e-3,
+                          registration=registration))
     for part in getattr(gun, "bore_components", ()):
         center = float(part.mechanical_center_from_tip_mm)*1e-3
         half = float(part.mechanical_length_mm)*.5e-3
@@ -132,6 +161,19 @@ def _physical_bores(state, gun, electric_base):
             values = tuple(row[:5])
         rows.append(_Bore(str(values[0]), *(float(value) for value in values[1:])))
     for row in getattr(electric_base, "request", {}).get("grounded_liner", ()):
+        if posed and any(
+            str(row["key"]) == str(segment.key)
+            and math.isclose(float(row["start_m"]), float(segment.start_z_mm)*1e-3, rel_tol=0., abs_tol=1e-12)
+            and math.isclose(float(row["stop_m"]), float(segment.end_z_mm)*1e-3, rel_tol=0., abs_tol=1e-12)
+            and math.isclose(float(row["inner_m"]), float(segment.inner_diameter_mm)*.5e-3, rel_tol=0., abs_tol=1e-12)
+            for segment in getattr(assembly, "vacuum_liner_segments", ())
+        ):
+            # This electrical request row is the nominal copy of a captured
+            # mechanical liner. Its actual clearance is already represented
+            # by the shared stationary/posed bore partition. Keeping this
+            # second coaxial copy would leave a wall at the lens's old pose.
+            # Independently declared gun shells and joints remain below.
+            continue
         rows.append(_Bore(str(row["key"]), float(row["start_m"]), float(row["stop_m"]), float(row["inner_m"])))
     for row in rows:
         if (not all(math.isfinite(v) for v in (row.lower_m, row.upper_m, row.inner_m))
@@ -172,14 +214,20 @@ class TestElectronScene:
     _column_input_graph: object | None = field(default=None, repr=False, compare=False)
     _column_handoff_z_m: float | None = None
     _column_identity: str | None = None
+    _aperture_registrations: tuple = ()
     _bore_axial_bounds_m: np.ndarray = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
         # Only reject disjoint axial intervals here. Every remaining shell,
         # thin electrode and bore still uses the original exact interception.
         # Inclusive comparisons preserve contacts exactly on either face.
-        bounds = _frozen([(bore.lower_m, bore.upper_m) for bore in self._bores]).reshape(-1, 2)
+        # A tilted axial slab has no finite global-Z extent without a radial
+        # bound. Do not reject such contacts with the unposed axial faces.
+        bounds = _frozen([(bore.lower_m, bore.upper_m) if bore.registration is None
+                          else (-math.inf, math.inf) for bore in self._bores]).reshape(-1, 2)
         object.__setattr__(self, "_bore_axial_bounds_m", bounds)
+        if self._aperture_registrations and len(self._aperture_registrations) != len(self._apertures):
+            raise ValueError("Captured aperture placements must match the aperture list")
 
     @property
     def bounds_m(self):
@@ -329,30 +377,35 @@ class TestElectronScene:
             fraction = _bore_intercept(start, end, bore)
             if fraction is not None:
                 hits.append((fraction, f"hardware:{bore.key}"))
-        for aperture in self._apertures:
+        registrations = self._aperture_registrations or (None,) * len(self._apertures)
+        for aperture, registration in zip(self._apertures, registrations):
+            local_start, local_end = start, end
+            if registration is not None:
+                local_start, local_end = registration.positions_global_to_local_m(np.asarray((start, end)))
+            local_delta = local_end-local_start
             plane = float(aperture.z_mm)*1e-3
-            if delta[2] == 0.:
-                if start[2] != plane:
+            if local_delta[2] == 0.:
+                if local_start[2] != plane:
                     continue
-                if not self._aperture_passes(aperture, start[:2]):
+                if not self._aperture_passes(aperture, local_start[:2]):
                     fraction = 0.
-                elif self._aperture_passes(aperture, end[:2]):
+                elif self._aperture_passes(aperture, local_end[:2]):
                     continue
                 else:
                     low, high = 0., 1.
                     for _ in range(48):
                         mid = .5*(low+high)
-                        if self._aperture_passes(aperture, (start+mid*delta)[:2]):
+                        if self._aperture_passes(aperture, (local_start+mid*local_delta)[:2]):
                             low = mid
                         else:
                             high = mid
                     hits.append((high, f"aperture:{aperture.key}"))
                     continue
             else:
-                fraction = (plane-start[2])/delta[2]
+                fraction = (plane-local_start[2])/local_delta[2]
                 if not 0. <= fraction <= 1.:
                     continue
-            passes = self._aperture_passes(aperture, (start+fraction*delta)[:2])
+            passes = self._aperture_passes(aperture, (local_start+fraction*local_delta)[:2])
             if not passes:
                 hits.append((float(fraction), f"aperture:{aperture.key}"))
         return min(hits, key=lambda pair: pair[0]) if hits else None
@@ -502,15 +555,19 @@ def prepare_test_electron_scene(state, magnetic_scene, *, z_limits_mm=None):
         reason = (electric_identity.reason if electric_identity.numerical_id is None
                   else "Magnetic provider identity is unknown")
         notes.append(f"Field identity unknown: {reason}; no reproducible field identity is inferred from a worker token.")
+    apertures = _active_apertures(state, gun)
+    from temsim.physics.aperture_clipping import posed_aperture_registration
+    aperture_registrations = tuple(posed_aperture_registration(state, aperture) for aperture in apertures)
     scene = TestElectronScene(expanded_magnetic, electric, base, _frozen(bounds), _frozen(electric_bounds),
                               tuple(float(v) for v in initial[0]), energy,
                               float(bounds[1, 2]-initial[0, 2]), tuple(notes),
-                              _active_apertures(state, gun), _physical_bores(state, gun, base),
+                              apertures, _physical_bores(state, gun, base),
                               (electric_region,), flat, post_exit_ground,
                               _unsupported_stops=tuple(unsupported_stops),
                               physical_identity=physical_identity, numerical_identity=numerical_identity,
                               _column_input_graph=column_graph, _column_handoff_z_m=handoff,
-                              _column_identity=column_identity)
+                              _column_identity=column_identity,
+                              _aperture_registrations=aperture_registrations)
     return replace(scene, transport_identity=transport_context_identity(scene))
 
 

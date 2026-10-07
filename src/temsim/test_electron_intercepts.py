@@ -40,6 +40,12 @@ def prepare_compiled_intercepts(scene):
             or getattr(scene.diagnostic_segment_stop, "__func__", None) is not TestElectronScene.diagnostic_segment_stop
             or getattr(scene._tip_intercept, "__func__", None) is not TestElectronScene._tip_intercept):
         return None
+    # These packed scalar rows describe coaxial hardware only. Posed scenes
+    # use the complete shared-frame reference contact method, even when field
+    # integration itself is compiled. Never compile a stale nominal aperture.
+    if (any(getattr(bore, "registration", None) is not None for bore in scene._bores)
+            or any(value is not None for value in scene._aperture_registrations)):
+        return None
     circles = (ContinuousApertureComponent, ObjectiveApertureComponent,
                SelectedAreaApertureComponent, EnergyFilterEntranceApertureComponent)
     rows, reasons = [], []

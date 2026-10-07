@@ -160,6 +160,9 @@ class ManifestEditor:
             editable_values = dict(part)
             if supports_physical_lens_pose(part):
                 editable_values.update(physical_pose_values(part))
+            from temsim.part_model_apertures import has_optional_plate_thickness
+            if has_optional_plate_thickness(part):
+                editable_values.setdefault("plate_thickness_mm", 0.)
             return tuple(
                 ManifestField(
                     path=("parts", target.part_key, str(field)),

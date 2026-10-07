@@ -268,7 +268,7 @@ def fields(z,state, *, exclude_mapped_keys=()):
         magnetic += np.where(
             _support_mask(z, provider), contribution, 0.0
         )
-    sx, sy = multipole_focusing_fields(z, state)
+    sx, sy = multipole_focusing_fields(z, state, exclude_mapped_keys=exclude_mapped_keys)
     from temsim.physics.instrument_magnetic import gun_paraxial_fields
     _, _, gun_sx, gun_sy, _ = gun_paraxial_fields(state, z)
     sx += gun_sx
@@ -276,17 +276,19 @@ def fields(z,state, *, exclude_mapped_keys=()):
     return magnetic, sx, sy
 
 
-def multipole_focusing_fields(z, state):
+def multipole_focusing_fields(z, state, *, exclude_mapped_keys=()):
     """Shared continuous quadrupole coefficients, without querying round lenses."""
     z = np.asarray(z, float)
     sx, sy = np.zeros_like(z), np.zeros_like(z)
     for stig in state.stigmators:
         if not stig.enabled: continue
+        if getattr(stig, "key", None) in exclude_mapped_keys: continue
         qx, qy, _ = stig.quadrupole_tensor_m2(z)
         mask = _support_mask(z, stig)
         sx += np.where(mask, qx, 0.0)
         sy += np.where(mask, qy, 0.0)
     for component in getattr(state, "corrector_elements", []):
+        if getattr(component, "key", None) in exclude_mapped_keys: continue
         if not getattr(component, "enabled", False):
             continue
         if not hasattr(component, "quadrupole_strength_m2"):
@@ -297,11 +299,12 @@ def multipole_focusing_fields(z, state):
         sy -= np.where(mask, q, 0.0)
     return sx, sy
 
-def skew_quadrupole_field(z, state):
+def skew_quadrupole_field(z, state, *, exclude_mapped_keys=()):
     """Off-diagonal focusing coefficient in the same frame as fields()."""
     z = np.asarray(z, float)
     skew = np.zeros_like(z)
     for stig in state.stigmators:
+        if getattr(stig, "key", None) in exclude_mapped_keys: continue
         if stig.enabled:
             _, _, value = stig.quadrupole_tensor_m2(z)
             skew += np.where(_support_mask(z, stig), value, 0.0)
@@ -318,7 +321,7 @@ def hexapole_field(z, state):
     return hexapole_field_components(z, state)[0]
 
 
-def hexapole_field_components(z, state):
+def hexapole_field_components(z, state, *, exclude_mapped_keys=()):
     """Sum continuous normal and skew hexapole coefficients."""
 
     z = np.asarray(z, float)
@@ -327,6 +330,7 @@ def hexapole_field_components(z, state):
     if is_ideal(state):
         return normal, skew
     for component in getattr(state, "corrector_elements", []):
+        if getattr(component, "key", None) in exclude_mapped_keys: continue
         if not getattr(component, "enabled", False):
             continue
         if hasattr(component, "hexapole_strength_components_m3"):
@@ -589,6 +593,9 @@ def build_propagation_plan(
                 remaining_events.pop(index)
                 dipoles.append(field)
                 break
+        else:
+            if getattr(field, "registration", None) is not None and any(float(row[0]) == field.event_z_mm for row in remaining_events):
+                raise ValueError(f"{field.key}: posed deflector event override does not match the captured physical coil drive")
     events = tuple(remaining_events)
     save_z_mm = tuple(save_z_mm)
     checkpoint_z_mm = tuple(checkpoint_z_mm)
@@ -633,7 +640,17 @@ def build_propagation_plan(
         and provider.field_support_mm()[0] <= float(z1)
         and provider.field_support_mm()[1] >= float(z0)
     )
-    mapped_keys = {item.lens_key for item in mapped_fields}
+    from temsim.physics.posed_column_fields import capture_posed_column_fields
+    posed_columns = capture_posed_column_fields(state, include_hexapole=include_hexapole, dipoles=dipoles)
+    mapped_fields += tuple(field for field in posed_columns
+                           if field.field_support_mm[0] <= float(z1) and field.field_support_mm[1] >= float(z0))
+    # A translated component outside this segment must not reappear at its
+    # old axial location through the scalar channel. Exclude all placed
+    # components, while only retaining actual overlapping vector providers.
+    posed_keys = {field.component_key for field in posed_columns}
+    mapped_keys = {item.lens_key for item in mapped_fields} | posed_keys
+    posed_coil_keys = {field.lens_key for field in posed_columns if field.event_z_mm is not None}
+    dipoles = [field for field in dipoles if field.key not in posed_coil_keys]
     from temsim.physics.posed_aberrations import posed_spherical_kicks
     posed_cs = posed_spherical_kicks(state, float(z0), float(z1)) if include_spherical_aberration else ()
     exact_z_mm = [event.z_mm for event in (*image_lens_events, *posed_cs)]
@@ -724,8 +741,8 @@ def build_propagation_plan(
         midpoint_magnetic, midpoint_sx, midpoint_sy = fields(
             midpoint_z_mm, state, **field_options
         )
-        sxy = skew_quadrupole_field(zfull, state)
-        midpoint_sxy = skew_quadrupole_field(midpoint_z_mm, state)
+        sxy = skew_quadrupole_field(zfull, state, **field_options)
+        midpoint_sxy = skew_quadrupole_field(midpoint_z_mm, state, **field_options)
     finally:
         if had_equivalent_propagation_flag:
             state._using_equivalent_image_propagation = (
@@ -734,9 +751,9 @@ def build_propagation_plan(
         else:
             delattr(state, "_using_equivalent_image_propagation")
     if include_hexapole:
-        hex_normal, hex_skew = hexapole_field_components(zfull, state)
+        hex_normal, hex_skew = hexapole_field_components(zfull, state, exclude_mapped_keys=mapped_keys)
         midpoint_hex_normal, midpoint_hex_skew = hexapole_field_components(
-            midpoint_z_mm, state
+            midpoint_z_mm, state, exclude_mapped_keys=mapped_keys
         )
     else:
         hex_normal = np.zeros(len(zfull), np.float64)
@@ -790,7 +807,7 @@ def build_propagation_plan(
         bool(getattr(state, "acceleration_enabled", False)),
         str(getattr(state, "acceleration_backend", "Auto")),
         FIELD_SIGMA_CUTOFF,
-        'canonical-rk4-shared-electric-magnetic-energy-v6',
+        'canonical-rk4-shared-electric-magnetic-energy-v7-posed-cs',
         mode_key(state),
         state.vacuum_map.signature() if particle_medium else "optical-map-no-medium",
     ))
@@ -1062,7 +1079,7 @@ def execute_propagation_plan(
     policy = normalise_backend(getattr(state, "acceleration_backend", "Auto")).lower().replace(" ", "_")
     tuning = bool(getattr(state, "_optical_tuning", False) or getattr(state, "_particle_tuning", False))
     workload = None
-    if electric_field is None and medium_transport is None and not plan.mapped_fields and not tuning:
+    if electric_field is None and medium_transport is None and not plan.mapped_fields and not posed_cs and not tuning:
         from temsim.physics.ray_device_cache import STAGE_COSTS, measured_workload
         workload = measured_workload((*inputs, *timing.values()) if timing else inputs)
         if (policy == "auto" and backend != BACKEND_CUDA
@@ -1079,7 +1096,7 @@ def execute_propagation_plan(
         f"Column | {backend} | {arrays[0].size:,} electrons | "
         f"Z {zfull[0]:.3f} to {zfull[-1]:.3f} mm | {len(zfull)-1:,} integration steps")
     retried = False
-    if policy == "require_gpu" and (medium_transport is not None or plan.mapped_fields):
+    if policy == "require_gpu" and (medium_transport is not None or plan.mapped_fields or posed_cs):
         raise GPUExecutionError("unsupported_stage", "Requested column transport requires the existing CPU vector-field or residual-medium solver")
     if electric_field is not None:
         from temsim.physics.electrostatic_column_transport import electrostatic_column_rk4
@@ -1110,10 +1127,10 @@ def execute_propagation_plan(
             retried = True
             outputs, backend, _ = electrostatic_column_rk4(inputs,
                 backend=BACKEND_NUMBA if NUMBA_AVAILABLE else BACKEND_CPU, **electric_options)
-    elif medium_transport is not None and not plan.mapped_fields:
+    elif medium_transport is not None and not plan.mapped_fields and not posed_cs:
         outputs = _vectorised_rk4(*inputs, step_operator=medium_transport, **timing)
         backend, fallback_reason = BACKEND_CPU, "classical residual-medium collisions between optical steps"
-    elif plan.mapped_fields:
+    elif plan.mapped_fields or posed_cs:
         from temsim.physics.vector_field_transport import vector_map_rk4
         backend, fallback_reason = BACKEND_CPU, "positioned magnetic vector-field RK4"
         outputs = vector_map_rk4(*inputs, z_mm=zfull, mapped_fields=plan.mapped_fields,

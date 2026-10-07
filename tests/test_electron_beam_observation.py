@@ -154,6 +154,26 @@ def test_unknown_magnetic_state_does_not_claim_probability_flow(qtbot, view):
     assert view.diagnostics.analysis.wave.values is not None
 
 
+def test_same_checkpoint_refreshes_changed_or_missing_gauge(qtbot, view):
+    from test_wave_plane_observables import _posed_gauge
+    gauge = _posed_gauge()
+    result, preview = plane(z=gauge.plane_z_mm)
+    preview = replace(preview, axial_bz_t=None, magnetic_gauge=gauge)
+    view.set_observation(result, preview, 0)
+    show(view, "wave_flow")
+    diagnostic_ready(qtbot, view)
+    original_view = view.diagnostics.analysis.wave
+    assert original_view.flow_current_pA is not None
+    view.set_observation(result, replace(preview, magnetic_gauge=None), 0)
+    diagnostic_ready(qtbot, view)
+    assert view.diagnostics.analysis.wave is not original_view
+    assert view.diagnostics.analysis.wave.flow_current_pA is None
+    assert "magnetic" in view.diagnostics.summary.text().lower()
+    view.set_observation(result, preview, 0)
+    diagnostic_ready(qtbot, view)
+    assert view.diagnostics.analysis.wave.flow_current_pA is not None
+
+
 def test_projection_uses_same_angle_as_ray_diagram(qtbot, view):
     view.set_projection_angle(37.)
     view.set_observation(*plane(), 0)

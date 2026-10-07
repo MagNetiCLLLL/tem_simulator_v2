@@ -21,7 +21,7 @@ def _result(value=1.0, *, tuning=True, signature="live", detector_z=9.0):
         value=value, model_signature=signature,
         simulation=SimpleNamespace(incident=branch, branches={}, metrics={"optical_tuning": tuning}),
         assembly=SimpleNamespace(parts=(part,)),
-        state_snapshot=SimpleNamespace(recording_planes=(SimpleNamespace(key="camera", z_mm=detector_z),)),
+        state_snapshot=SimpleNamespace(recording_planes=(SimpleNamespace(key="camera", name="Camera", z_mm=detector_z),)),
     )
 
 
@@ -33,7 +33,7 @@ def workspace(qtbot, monkeypatch):
     # Exercise publication and real Qt visibility without a column solve or
     # unrelated image, spectrum, and instrument-layout construction.
     monkeypatch.setattr(view, "_draw_ray_diagram", lambda *_a, **_k: None)
-    monkeypatch.setattr(view, "_prepare_scan_ray_playback", lambda *_a: None)
+    monkeypatch.setattr(view, "_prepare_scan_ray_playback", lambda *_a, **_kw: None)
     monkeypatch.setattr(view, "_update_projection_text", lambda: None)
     monkeypatch.setattr(view, "_highlight_ray_component", lambda _p: None)
     monkeypatch.setattr(view, "_apply_component_zoom", lambda _p: None)

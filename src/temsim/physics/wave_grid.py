@@ -110,6 +110,11 @@ class WaveGridNumerics:
     compute_backend: str = "cpu"
     acceleration_enabled: bool = True
     maximum_device_working_bytes: int = 24*1024**3
+    # Bounds the omitted non-quadratic magnetic action per travelled metre.
+    # A density keeps admission invariant under checkpoint segmentation.
+    maximum_posed_lens_phase_error_rad_per_m: float = .01
+    # Per discrete Cs event, separately from the distributed magnetic bound.
+    maximum_spherical_obliquity_phase_error_rad: float = .01
 
     def validate(self):
         if not isinstance(self.automatic_refinement, bool):
@@ -124,6 +129,14 @@ class WaveGridNumerics:
         if (type(self.maximum_device_working_bytes) is not int
                 or self.maximum_device_working_bytes <= 0):
             raise ValueError("Wave device working memory budget must be a positive integer")
+        if (isinstance(self.maximum_posed_lens_phase_error_rad_per_m, bool)
+                or not math.isfinite(self.maximum_posed_lens_phase_error_rad_per_m)
+                or self.maximum_posed_lens_phase_error_rad_per_m <= 0):
+            raise ValueError("Posed lens phase error budget must be finite and positive")
+        if (isinstance(self.maximum_spherical_obliquity_phase_error_rad, bool)
+                or not math.isfinite(self.maximum_spherical_obliquity_phase_error_rad)
+                or self.maximum_spherical_obliquity_phase_error_rad <= 0):
+            raise ValueError("Spherical obliquity phase error budget must be finite and positive")
         if self.specimen_phase_method not in ("sampled", "galerkin"):
             raise ValueError("Specimen phase method must be sampled or galerkin")
         if (type(self.specimen_quadrature_factor) is not int
@@ -131,11 +144,13 @@ class WaveGridNumerics:
             raise ValueError("Specimen potential quadrature factor must be an integer from 2 to 16")
         return self
 
-    def check(self, shape, *, retained_bytes=0):
+    def check(self, shape, *, retained_bytes=0, working_bytes_per_pixel=256):
         self.validate()
+        if (type(working_bytes_per_pixel) is not int or working_bytes_per_pixel < 256):
+            raise ValueError("Wave working estimate must be at least 256 bytes per pixel")
         # Covers immutable input/output copies, FFT scratch, coordinates,
         # polynomial phase arrays and field propagation work, not total RSS.
-        required = int(retained_bytes)+256*math.prod(shape)
+        required = int(retained_bytes)+working_bytes_per_pixel*math.prod(shape)
         if max(shape) > self.maximum_pixels or required > self.maximum_working_bytes:
             # A simultaneous pixel and memory failure is still a pixel-cap
             # failure: serial execution cannot resolve it.
@@ -151,11 +166,15 @@ class WaveGridNumerics:
         """Consumed column numerics only; specimen quadrature is downstream."""
         self.validate()
         return {"automatic_refinement": self.automatic_refinement,
+                "posed_lens_model": "main-column-carrier-centred-bounded-electric-residual-v3",
+                "posed_spherical_model": "canonical-first-inclination-cs-v1",
                 "maximum_pixels": self.maximum_pixels,
                 "maximum_working_bytes": self.maximum_working_bytes,
                 "compute_backend": self.compute_backend,
                 "acceleration_enabled": self.acceleration_enabled,
-                "maximum_device_working_bytes": self.maximum_device_working_bytes}
+                "maximum_device_working_bytes": self.maximum_device_working_bytes,
+                "maximum_spherical_obliquity_phase_error_rad": self.maximum_spherical_obliquity_phase_error_rad,
+                "maximum_posed_lens_phase_error_rad_per_m": self.maximum_posed_lens_phase_error_rad_per_m}
 
 
 def refine_plane_wave(wave, shape, *, numerics=WaveGridNumerics(), retained_bytes=0):

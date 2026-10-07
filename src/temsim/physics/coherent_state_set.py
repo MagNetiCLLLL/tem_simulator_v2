@@ -142,6 +142,7 @@ class EnsemblePreview:
     comparison: None = None
     comparison_error: None = None
     axial_bz_t: float | None = None
+    magnetic_gauge: object = None
 
 
 def _preview_geometry(preview):
@@ -220,12 +221,20 @@ def combine_intensity_previews(items):
     density.setflags(write=False)
     bounds.setflags(write=False)
     unique_previews = {id(row[1]): row[1] for row in rows}
+    gauges = tuple(getattr(rows[i][1], "magnetic_gauge", None) for i in active)
+    common_gauge = (gauges[0] if gauges[0] is not None and all(
+        gauge is not None and gauge.fingerprint == gauges[0].fingerprint
+        for gauge in gauges) else None)
+    # A shared scalar Bz cannot substitute for different displaced/tilted
+    # vector potentials. Keep intensity available, but require a common
+    # captured gauge before offering a mixed-state probability-flow readout.
+    gauge_conflict = any(gauge is not None for gauge in gauges) and common_gauge is None
     preview = EnsemblePreview(density, bounds, float(probability.sum()),
         sum(int(rows[i][1].mode_count) for i in active),
         sum(int(item.retained_bytes) for item in unique_previews.values())+density.nbytes+bounds.nbytes,
         tuple(sorted({shape for i in active for shape in rows[i][1].grid_shapes})),
         axial_bz_t=(getattr(rows[active[0]][1], "axial_bz_t", None)
-            if all(getattr(rows[i][1], "axial_bz_t", None) ==
+            if not gauge_conflict and all(getattr(rows[i][1], "axial_bz_t", None) ==
                    getattr(rows[active[0]][1], "axial_bz_t", None) for i in active)
-            else None))
+            else None), magnetic_gauge=common_gauge)
     return observation, preview

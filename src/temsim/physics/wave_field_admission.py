@@ -3,6 +3,10 @@
 import numpy as np
 
 
+class UnsupportedWaveElectricField(ValueError):
+    """A ray-capable provider without this wave model's scalar expansion."""
+
+
 def sample_wave_electric(field, z_mm):
     """Second-order transverse expansion of the actual static scalar field.
 
@@ -23,12 +27,12 @@ def sample_wave_electric(field, z_mm):
         provider = field
         base = field.base_field if type(field) is CombinedElectricField else field
     if type(base) not in (ClosedGunField, PlanarGunField, GroundedTipField):
-        raise ValueError("Non-polynomial electric maps need their resolved wave Hamiltonian")
+        raise UnsupportedWaveElectricField("Non-polynomial electric maps need their resolved wave Hamiltonian")
     if provider is not base and type(provider) is not CombinedElectricField:
-        raise ValueError("Unknown composed electric provider cannot define a coherent operator")
+        raise UnsupportedWaveElectricField("Unknown composed electric provider cannot define a coherent operator")
     wien = getattr(provider, "wien_field", None)
     if wien is not None and type(wien) is not AnalyticWienField:
-        raise ValueError("Imported Wien electric maps need their resolved wave Hamiltonian")
+        raise UnsupportedWaveElectricField("Imported Wien electric maps need their resolved wave Hamiltonian")
     z = np.asarray(z_mm, dtype=float)
     if z.ndim != 1 or not np.all(np.isfinite(z)):
         raise ValueError("Wave electric sampling needs finite axial positions in mm")
@@ -56,6 +60,23 @@ def sample_wave_electric(field, z_mm):
     return phi, -electric0[:, :2], hessian
 
 
+def sample_spherical_electric(field, z_mm):
+    """Local scalar-potential coefficients for the common tilted Cs budget.
+
+    These describe the captured axis expansion already used by the wave
+    column. The event does not propagate an additional electric field.
+    """
+    z = np.atleast_1d(np.asarray(z_mm, float))
+    _, transverse_gradient, hessian = sample_wave_electric(field, z)
+    points = np.zeros((len(z), 3))
+    points[:, 2] = z*1e-3
+    gradient = -np.asarray(field.field_at_global_positions_v_per_m(points), float)
+    gradient[:, :2] = transverse_gradient
+    if not np.isfinite(gradient).all():
+        raise ValueError("Captured electric field has non-finite Cs coefficients")
+    return gradient, hessian
+
+
 def require_supported_column_wave_fields(state, start_z_mm, stop_z_mm, plan):
     """Admission only for the column solver that executes E and dipole B.
 
@@ -67,9 +88,9 @@ def require_supported_column_wave_fields(state, start_z_mm, stop_z_mm, plan):
     field = getattr(plan, "electric_field", None)
     if field is not None:
         sample_wave_electric(field, np.asarray((start_z_mm, stop_z_mm)))
-    low, high = float(start_z_mm)*1e-3, float(stop_z_mm)*1e-3
+    low, high = float(start_z_mm), float(stop_z_mm)
     active = any((coil.bx_t != 0. or coil.by_t != 0.)
-        and coil.lower_m < high and coil.upper_m > low for coil in column_dipole_fields(state))
+        and coil.field_support_mm[0] < high and coil.field_support_mm[1] > low for coil in column_dipole_fields(state))
     if active and not hasattr(plan, "dipole_bx_t"):
         raise ValueError("The shared wave plan is missing finite magnetic dipoles")
 
@@ -89,10 +110,10 @@ def require_supported_wave_dipoles(state, start_z_mm, stop_z_mm, plan):
             "electric column field; it cannot be silently omitted"
         )
 
-    low, high = float(start_z_mm)*1e-3, float(stop_z_mm)*1e-3
+    low, high = float(start_z_mm), float(stop_z_mm)
     active_column = any(
         (coil.bx_t != 0. or coil.by_t != 0.)
-        and coil.lower_m < high and coil.upper_m > low
+        and coil.field_support_mm[0] < high and coil.field_support_mm[1] > low
         for coil in column_dipole_fields(state)
     )
     if active_column or np.any(plan.dipole_bx_t) or np.any(plan.dipole_by_t):

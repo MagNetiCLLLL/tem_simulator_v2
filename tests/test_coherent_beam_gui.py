@@ -16,6 +16,7 @@ from PySide6.QtCore import QThread, QTimer, Qt
 
 import temsim.gui.coherent_beam as module
 from temsim.gui.coherent_beam import CoherentBeamPage, _Preview
+from temsim.physics.wave_plane_observables import ColumnPlaneMagneticGauge
 
 
 def instrument(surface=None):
@@ -69,7 +70,8 @@ def panel(qtbot, monkeypatch):
     monkeypatch.setattr(module, "_intensity_preview", lambda *_args, **_kwargs: preview())
     # This fixture substitutes physical execution with a minimal instrument;
     # it has no installed field providers. Other tests exercise those fields.
-    monkeypatch.setattr(module, "_plane_axial_field", lambda *_args: .125)
+    monkeypatch.setattr(module, "_plane_magnetic_gauge", lambda _state, z:
+        ColumnPlaneMagneticGauge(z, .125, ()))
     view = CoherentBeamPage()
     qtbot.addWidget(view)
     def apply_fixture(settings):
@@ -150,12 +152,13 @@ def test_worker_uses_captured_copy_and_runs_off_gui_thread(panel, qtbot, monkeyp
     monkeypatch.setattr(module, "simulate_tip_wave", solve)
     def recorded_field(state, z_mm):
         fields.append((state is original, QThread.currentThread() == panel.thread(), z_mm))
-        return .375
-    monkeypatch.setattr(module, "_plane_axial_field", recorded_field)
+        return ColumnPlaneMagneticGauge(z_mm, .375, ())
+    monkeypatch.setattr(module, "_plane_magnetic_gauge", recorded_field)
     calculate(panel, qtbot)
     assert calls[0][:2] == (False, False)
     assert fields == [(False, False, 100.)]
     assert panel.preview.axial_bz_t == .375
+    assert panel.preview.magnetic_gauge == ColumnPlaneMagneticGauge(100., .375, ())
     assert original.electron_gun.emitter.coherence is not None
     assert original.electron_gun.emitter.emission_energy_ev == .3
     assert original.electron_gun.emitter.virtual_source_fwhm_nm == 5.

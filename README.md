@@ -24,6 +24,10 @@ The simulator does not currently provide autonomous microscope control.
   instrument state, with intensity, simulated electron arrivals, per-mode phase
   and probability-flow observations, cached exact-Z planes and named
   emission-state intensity overlays.
+- Small-angle installation offsets/tilts of post-gun lenses, deflectors,
+  stigmators, corrector fields and circular apertures, using shared ray/wave
+  geometry and fields. Finite tilted aperture plates need declared thickness;
+  coherent spherical aberration uses a bounded small-angle thin-lens approximation.
 - Hardware tuning with beam measurements and comparison against a saved baseline.
 - Specimen scattering, detector signals, STEM scanning, EDS and optional
   energy-filter modelling.

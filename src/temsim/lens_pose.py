@@ -1,4 +1,4 @@
-"""Rigid magnetic-lens placement shared by CAD and particle field queries.
+"""Rigid main-column placement shared by CAD, rays and wave field queries.
 
 Offsets use mm, right-handed Euler angles use mrad, in Rz @ Ry @ Rx order.
 Each part rotates about its unposed mechanical centre. Parent transforms are
@@ -17,10 +17,61 @@ PHYSICAL_POSE_FIELDS = (
 _PROFILES = frozenset({"magnetic_lens_assembly", "magnetic_lens_housing"})
 
 
-def supports_physical_lens_pose(part):
+def column_pose_kind(part):
+    """Return ``hardware``/``field`` for supported post-gun column entries.
+
+    A control channel without a verified material host moves its local field
+    coordinates only; it does not acquire a fictitious solid. Known channels
+    on shared hardware have no second editable placement. Gun, receiver and
+    energy-filter branches are deliberately outside this model.
+    """
+    from temsim.component_keys import PROBE_CORRECTOR_KEYS, IMAGE_CORRECTOR_KEYS
+    from temsim.component_representation import non_material_role, SHARED_DEFLECTOR_HOSTS
+    key = str(part.get("key", ""))
+    if (key.startswith(("feg_", "gun_", "thermionic_", "energy_filter_"))
+            or part.get("branch") in {"gun", "source", "detection", "energy_filter"}
+            or part.get("mechanical_part_role") == "custom_mechanical_copy"
+            or key in SHARED_DEFLECTOR_HOSTS
+            or key in {"image_sad_plane", "probe_dp12_scan_deflector"}
+            or non_material_role(part) == "virtual_reference"):
+        return None
     profile = part.get("mechanical_profile")
-    return (profile == "magnetic_lens_assembly"
-            or (profile == "magnetic_lens_housing" and not part.get("parent_key")))
+    if (profile == "magnetic_lens_assembly"
+            or (profile == "magnetic_lens_housing" and not part.get("parent_key"))):
+        return "hardware"
+    independent = {
+        "condenser_deflector", "beam_deflector", "dc_deflector", "ac_deflector",
+        "image_diffraction_deflector", "condenser_stigmator", "objective_stigmator",
+        "diffraction_stigmator", "condenser_aperture_2", "condenser_aperture_3",
+        "objective_aperture", "selected_area_aperture", "projection_chamber_dpa_aperture",
+        *PROBE_CORRECTOR_KEYS, *IMAGE_CORRECTOR_KEYS,
+    }
+    if key not in independent:
+        return None
+    return "field" if (non_material_role(part) == "control_channel"
+                       or profile in {"quadrupole_field_channel", "deflector_field_channel"}) else "hardware"
+
+
+def supports_physical_column_pose(part):
+    return column_pose_kind(part) is not None
+
+
+def supports_physical_lens_pose(part):
+    """Compatibility entry point for the shared main-column placement law."""
+    return supports_physical_column_pose(part)
+
+
+def physical_pose_description(part):
+    if column_pose_kind(part) == "field":
+        subject = ("Local field-coordinate placement. This channel has no verified separate material host; "
+                   "the placement moves its field without creating a material body. ")
+    elif "aperture" in str(part.get("key", "")):
+        subject = ("Physical aperture placement, shared by the opening and its material plate. "
+                   "The operating hole offset remains in the aperture's local frame. ")
+    else:
+        subject = "Physical component placement. Its field and physically owned child hardware move together. "
+    return subject + ("Rotations are right-handed X, then Y, then Z about the component centre, in mrad. "
+                      "Excitation and material dimensions are unchanged by rigid placement.")
 
 
 def inherits_parent_lens_pose(part):
@@ -31,8 +82,12 @@ def inherits_parent_lens_pose(part):
     inherit the objective pose through that independently mounted device.
     """
     from temsim.component_representation import non_material_role
-    if supports_physical_lens_pose(part):
+    if supports_physical_lens_pose(part) and part.get("mechanical_profile") in _PROFILES:
         return True
+    if supports_physical_column_pose(part):
+        # Apertures and non-round optical devices are separately mounted even
+        # when parent_key names an enclosing lens for packing/navigation.
+        return False
     key = str(part.get("key", ""))
     return not (
         key in {"sample", "sample_stage"}
@@ -68,7 +123,7 @@ def physical_pose_values(part):
     offset = transform.get("offset_mm", (0.0, 0.0, 0.0))
     angles = transform.get("rotation_deg", (0.0, 0.0, 0.0))
     if len(offset) != 3 or len(angles) != 3:
-        raise ValueError("Lens CAD placement requires three offsets and rotations")
+        raise ValueError("Component placement requires three offsets and rotations")
     legacy = tuple(offset) + tuple(_finite(v, "rotation_deg") * math.pi / 180.0 * 1000.0 for v in angles)
     return {name: _finite(part.get(name, value), name)
             for name, value in zip(PHYSICAL_POSE_FIELDS, legacy)}
@@ -78,7 +133,7 @@ def validate_physical_lens_pose(part):
     if not supports_physical_lens_pose(part):
         # Apertures and detectors have their own independent offset controls.
         if any(name in part for name in PHYSICAL_POSE_FIELDS[2:]):
-            raise ValueError("Physical lens pose belongs to a magnetic lens assembly or housing")
+            raise ValueError("Physical pose is supported only for post-gun main-column components; edit the physical host for a shared channel")
         return
     physical_pose_values(part)
 
@@ -113,6 +168,12 @@ def effective_part_transform_mm(part, by_key):
     rotation, translation = np.eye(3), np.zeros(3)
     seen = set()
     current = part
+    from temsim.component_representation import SHARED_DEFLECTOR_HOSTS
+    host = SHARED_DEFLECTOR_HOSTS.get(str(part.get("key", "")))
+    if host:
+        current = by_key.get(host)
+        if current is None:
+            raise ValueError(f"Shared field channel requires its captured physical host: {host}")
     while current is not None:
         key = current.get("key", "")
         if key in seen:
@@ -134,6 +195,8 @@ def effective_part_transform_mm(part, by_key):
 
 def lens_pose_registration(state, lens_key):
     """Baseline global-SI to placed global-SI transform, captured from assembly."""
+    from temsim.component_representation import SHARED_DEFLECTOR_HOSTS
+    lens_key = SHARED_DEFLECTOR_HOSTS.get(str(lens_key), lens_key)
     from temsim.physics.lens_field_provider import CoordinateRegistration
     assembly = getattr(state, "_resolved_assembly", None)
     from temsim.column.module_assembly import ResolvedAssembly

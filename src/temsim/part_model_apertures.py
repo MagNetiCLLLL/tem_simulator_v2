@@ -7,8 +7,23 @@ dimensions. No carrier bore is substituted for an unknown working aperture.
 """
 
 from collections.abc import Mapping
+import math
+from numbers import Real
 
 import numpy as np
+
+
+def has_optional_plate_thickness(part):
+    """The post-column DPA has an unmeasured, explicitly user-entered plate."""
+    return (part.get("key") == "projection_chamber_dpa_aperture"
+            and part.get("mechanical_profile") == "fixed_differential_pumping_aperture")
+
+
+def validate_optional_plate_thickness(part):
+    if has_optional_plate_thickness(part) and "plate_thickness_mm" in part:
+        value = part["plate_thickness_mm"]
+        if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value) or value < 0:
+            raise ValueError("DPA plate_thickness_mm must be finite and nonnegative; 0 means unspecified")
 
 
 def is_strip_aperture(part):

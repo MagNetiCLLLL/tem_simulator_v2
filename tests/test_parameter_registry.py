@@ -83,6 +83,26 @@ def test_lens_metadata_exceptions_do_not_hide_unrelated_controls():
     assert 'instrument.field_calibration_status' in unmapped_public_inputs(state)
 
 
+def test_descan_host_aliases_are_not_independent_unknown_inputs():
+    from temsim.calculation_cache import calculation_signatures
+    from temsim.parameter_registry import unmapped_public_inputs
+    state = default_state()
+    channel = state.descan_deflector
+    host = channel._physical_host
+    before = calculation_signatures(state)
+    assert not unmapped_public_inputs(state)
+    host.upper_z_mm += 0.25
+    host.lower_z_mm += 0.25
+    expected_center = 0.5 * (host.upper_z_mm + host.lower_z_mm)
+    assert channel.mechanical_center_from_tip_mm == expected_center
+    assert channel.optical_reference_from_tip_mm == expected_center
+    assert not unmapped_public_inputs(state)
+    assert calculation_signatures(state)["column"] != before["column"]
+    # The exception is component-specific, not a blanket name exclusion.
+    state.sample.optical_reference_from_tip_mm = expected_center
+    assert "instrument.sample.optical_reference_from_tip_mm" in unmapped_public_inputs(state)
+
+
 def test_computed_gun_waist_is_not_a_new_physical_input():
     from temsim.calculation_cache import calculation_signatures
     from temsim.instrument_snapshot import capture_instrument_snapshot, encode_instrument, decode_instrument

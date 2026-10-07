@@ -148,6 +148,9 @@ def test_geometric_exit_default_respects_resolved_column_handoff(
     state.electron_gun = physical_state.electron_gun
     state.energy_filter = physical_state.energy_filter
     state.recording_planes = physical_state.recording_planes
+    # The physical endpoint belongs to the resolved assembly, not to a
+    # historical minimum column length in a geometry-free fixture.
+    state._resolved_assembly = assembly
     assert section_limits(state)[1] == pytest.approx(handoff)
     expected = 2.5 if explicit_stop else handoff
     dispatched = []

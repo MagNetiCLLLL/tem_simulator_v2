@@ -229,6 +229,36 @@ def test_unknown_magnetic_field_blocks_only_probability_flow(view):
     assert view.analysis.wave.values.shape == (32, 32)
 
 
+def test_flow_readout_uses_captured_posed_gauge_and_rejects_other_z(view):
+    from scipy.constants import e
+    from temsim.physics.tip_gun_wave import _momentum_velocity
+    from test_wave_plane_observables import _posed_gauge
+    gauge = _posed_gauge()
+    original = replace(checkpoint(), plane_z_mm=gauge.plane_z_mm)
+    # Zero phase gradient, so the entire integrated transverse current here
+    # comes from the installed magnetic vector potential, including its offset.
+    first = original.beam.modes[0]
+    amplitude = np.ones_like(first.plane.amplitude)/32
+    first = replace(first, plane=replace(first.plane, amplitude=amplitude))
+    original = replace(original, beam=BeamState((first,), TIP_REFERENCE))
+    display(view, original, axial_bz_t=None, magnetic_gauge=gauge)
+    switch(view, "wave_flow")
+    wave = view.analysis.wave
+    potential = gauge.vector_potential_xy_t_m(first.plane.coordinates_m())
+    p, _ = _momentum_velocity(first.energy_kev*1000.)
+    expected = (original.reference_current_a*1e12*first.weight_per_reference_electron
+                *np.sum(abs(amplitude)**2*potential, axis=(1, 2))*e/p)
+    np.testing.assert_allclose(wave.flow_current_pA.sum(axis=(1, 2)), expected,
+                               rtol=1e-12, atol=1e-12)
+    assert np.linalg.norm(expected) > 1.
+    switch(view, "wave_angles")
+    assert "recorded posed-lens gauge" in view.analysis.legend.text()
+    display(view, replace(original, plane_z_mm=gauge.plane_z_mm+1.),
+            axial_bz_t=None, magnetic_gauge=gauge)
+    switch(view, "wave_flow")
+    assert "exact observation plane" in view.summary.text()
+
+
 def test_all_diagnostic_derivation_runs_off_gui_thread(view, monkeypatch):
     import threading
     import temsim.gui.wave_beam_analysis as module

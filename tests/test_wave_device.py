@@ -153,3 +153,21 @@ def test_real_gpu_physical_annulus_and_column_aperture_masks():
     actual, device_losses = _clip(replace(wave, amplitude=cp.asarray(wave.amplitude)), .007, (aperture,), 2000., .7)
     np.testing.assert_allclose(cp.asnumpy(actual.amplitude), expected.amplitude, atol=1e-15)
     assert [r["lost_weight"] for r in device_losses] == pytest.approx([r["lost_weight"] for r in losses], abs=1e-14)
+    # An unexcited lens still owns its translated wall. Compare actual GPU
+    # masking to independent particle contacts, including partial absorption.
+    from test_column_wave_transport import _unexcited_posed_column
+    from temsim.physics.column_wave import _prepare_column
+    from temsim.physics.column_wall import clip_column_wall
+    state = _unexcited_posed_column(offset_x_mm=.5)
+    plan, radii, stops, _ = _prepare_column(state, 1620., 1620.1, .1)
+    wave = replace(wave, origin_m=np.array((-2.38e-3, 0.)), basis_m=np.eye(2)*1e-6)
+    xy = wave.coordinates_m()
+    alive, _, _ = clip_column_wall(state, plan.z_mm,
+        np.repeat(xy[0].reshape(1, -1), len(plan.z_mm), axis=0),
+        np.repeat(xy[1].reshape(1, -1), len(plan.z_mm), axis=0))
+    assert np.any(alive) and not np.all(alive)
+    cpu, _ = _clip(wave, radii[0], stops[0], 1620., .7)
+    gpu, _ = _clip(replace(wave, amplitude=cp.asarray(wave.amplitude)), radii[0], stops[0], 1620., .7)
+    expected = np.where(alive.reshape(wave.amplitude.shape), wave.amplitude, 0j)
+    np.testing.assert_array_equal(cpu.amplitude, expected)
+    np.testing.assert_allclose(cp.asnumpy(gpu.amplitude), expected, atol=1e-15, rtol=0.)

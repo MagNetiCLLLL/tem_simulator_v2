@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from temsim.cpu_resources import numerical_job
+from temsim.physics.instrument_electric import instrument_electric_end_mm
 from temsim.magnetic_test_particle import TestElectronSettings, trace_test_electron
 from temsim.test_electron_execution import (
     ElectronExecutionBackend, ElectronExecutionCancelled, ElectronExecutionError,
@@ -26,8 +27,9 @@ def captured():
     from temsim.test_electron_scene import prepare_test_electron_scene
     with numerical_job(1):
         state = default_state()
-        magnetic = prepare_magnetic_scene(state, z_limits_mm=(0., 3026.4))
-        scene = prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., 3026.4))
+        limits = (0., instrument_electric_end_mm(state))
+        magnetic = prepare_magnetic_scene(state, z_limits_mm=limits)
+        scene = prepare_test_electron_scene(state, magnetic, z_limits_mm=limits)
     settings = TestElectronSettings(kinetic_energy_ev=scene.initial_energy_ev,
         position_m=scene.initial_position_m, max_path_length_m=.01, step_m=.001, max_steps=20000)
     return state, magnetic, scene, settings
@@ -37,7 +39,7 @@ def captured():
 def prepared(captured):
     backend = ElectronExecutionBackend()
     state, magnetic, _, _ = captured
-    remote = backend.prepare(state, magnetic, z_limits_mm=(0., 3026.4))
+    remote = backend.prepare(state, magnetic, z_limits_mm=(0., instrument_electric_end_mm(state)))
     yield backend, remote
     backend.close()
 
@@ -170,7 +172,7 @@ def test_shared_cpu_admission_can_cancel_before_process_start():
 def test_missing_magnetic_scene_is_prepared_in_child(captured):
     backend = ElectronExecutionBackend()
     try:
-        remote = backend.prepare(captured[0], None, z_limits_mm=(0., 3026.4))
+        remote = backend.prepare(captured[0], None, z_limits_mm=(0., instrument_electric_end_mm(captured[0])))
         with numerical_job(1):
             expected = trace_test_electron(captured[2], captured[3])
         assert_same_result(backend.trace(remote, captured[3]), expected)
@@ -216,7 +218,8 @@ def test_cancelled_preparation_discards_child_and_next_preparation_can_start(cap
     started = time.perf_counter()
     try:
         with pytest.raises(ElectronExecutionCancelled):
-            backend.prepare(captured[0], captured[1], z_limits_mm=(0., 3026.4), cancelled=cancel.is_set)
+            backend.prepare(captured[0], captured[1],
+                z_limits_mm=(0., instrument_electric_end_mm(captured[0])), cancelled=cancel.is_set)
         assert time.perf_counter()-started < 2.
         assert backend.process_id is None
         remote = backend.install_prepared(captured[2])

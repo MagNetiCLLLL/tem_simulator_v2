@@ -34,14 +34,34 @@ class ColumnDipoleField:
     captured_time_s: float | None = None
     drive_keys: tuple[str, ...] = ()
     dynamic: bool = False
+    registration: object = None
+    radial_support_m: float = 0.
+
+    @property
+    def field_support_mm(self):
+        native = (self.lower_m*1e3, self.upper_m*1e3)
+        if self.registration is None:
+            return native
+        from temsim.physics.lens_field_provider import _posed_axial_support
+        return _posed_axial_support(native, self.registration, self.radial_support_m)
+
+    @property
+    def arrival_z_mm(self):
+        """Placed coil-centre plane used to freeze its time-dependent drive."""
+        if self.registration is None:
+            return self.event_z_mm
+        return (self.registration.rotation_array[2, 2]*self.event_z_mm
+                +self.registration.origin_global_m[2]*1e3)
 
     def field_at_global_positions_t(self, points):
         points = np.asarray(points, dtype=float)
+        if self.registration is not None:
+            points = self.registration.positions_global_to_local_m(points)
         result = np.zeros_like(points)
         active = (points[..., 2] >= self.lower_m) & (points[..., 2] <= self.upper_m)
         result[..., 0] = np.where(active, self.bx_t, 0.)
         result[..., 1] = np.where(active, self.by_t, 0.)
-        return result
+        return (result if self.registration is None else self.registration.vectors_local_to_global(result))
 
 
 def _component_kick_events(component, time_s):
@@ -117,6 +137,12 @@ def column_dipole_fields(state, *, time_s=None):
         if not np.isfinite(thickness) or thickness <= 0.:
             raise ValueError(f"{key}: magnetic deflection requires a positive effective coil thickness")
         length = thickness*1e-3
+        from temsim.lens_pose import has_lens_pose, lens_pose_registration
+        registration = lens_pose_registration(state, key) if has_lens_pose(state, key) else None
+        radius = 0.
+        if registration is not None:
+            from temsim.physics.posed_column_fields import _radius
+            radius = _radius(component)
         for index, (z, dx, dy) in enumerate(events):
             if not np.isfinite((z, dx, dy)).all():
                 raise ValueError(f"{key}: deflection commands must be finite")
@@ -124,7 +150,7 @@ def column_dipole_fields(state, *, time_s=None):
                 f"{key}:{index}", (z-.5*thickness)*1e-3, (z+.5*thickness)*1e-3,
                 momentum/charge*dy/length, -momentum/charge*dx/length,
                 float(z), float(dx), float(dy), float(momentum), captured_time,
-                drive_keys, dynamic))
+                drive_keys, dynamic, registration, radius))
     return tuple(result)
 
 
@@ -206,7 +232,7 @@ def events_overlapping_interval(state, events, lower_mm, upper_mm):
     ranges = {}
     for coil in coils:
         event = (coil.event_z_mm, coil.event_dx_rad, coil.event_dy_rad)
-        ranges.setdefault(event, []).append((coil.lower_m*1e3, coil.upper_m*1e3))
+        ranges.setdefault(event, []).append(coil.field_support_mm)
     result = []
     for event in events:
         event = tuple(map(float, event))

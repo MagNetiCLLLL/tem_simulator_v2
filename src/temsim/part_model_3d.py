@@ -501,7 +501,12 @@ def part_dimension_specs(document, part_key, *, runtime_values=None):
     from temsim.parameter_semantics import describe_parameter
     specs = (_dimensions(part, by_key) + feature_dimension_specs(part)
              + operating_dimension_specs(part, (runtime_values or {}).get(part_key)))
-    from temsim.lens_pose import physical_pose_values, supports_physical_lens_pose, inherits_parent_lens_pose
+    from temsim.part_model_apertures import has_optional_plate_thickness
+    if has_optional_plate_thickness(part) and "plate_thickness_mm" not in part:
+        path = ("parts", part_key, "plate_thickness_mm")
+        meaning = describe_parameter(part, path, by_key=by_key)
+        specs += (DimensionSpec(path, meaning.label, 0., "mm", reason=meaning.description, meaning=meaning),)
+    from temsim.lens_pose import physical_pose_values, supports_physical_lens_pose, inherits_parent_lens_pose, column_pose_kind, PHYSICAL_POSE_FIELDS
     pose_owner, seen = part, set()
     while pose_owner is not None and not supports_physical_lens_pose(pose_owner):
         if not inherits_parent_lens_pose(pose_owner):
@@ -543,6 +548,9 @@ def part_dimension_specs(document, part_key, *, runtime_values=None):
                   "of an independently drawn material body.")
         metadata = []
         for item in specs:
+            if item.path[2] in PHYSICAL_POSE_FIELDS and column_pose_kind(part) == "field":
+                metadata.append(replace(item, label="Field " + item.label))
+                continue
             host = shared_deflector_field_owner(part_key, item.path[2])
             item_reason = reason + (f" Edit {host} to change the shared structure." if host else "")
             label = "Stored " + " / ".join(

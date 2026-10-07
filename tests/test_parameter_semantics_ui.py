@@ -75,7 +75,8 @@ def test_manifest_fields_append_meaning_without_replacing_raw_keys_or_values(sou
     document = module_manifest.read_document(sources / COLUMN)
     part = next(part for part in document["parts"] if part["key"] == APERTURE)
     fields = ManifestEditor(sources).fields(ManifestTarget(COLUMN, APERTURE))
-    assert {field.label: field.value for field in fields} == part
+    from temsim.lens_pose import physical_pose_values
+    assert {field.label: field.value for field in fields} == {**part, **physical_pose_values(part)}
     assert all(field.path == ("parts", APERTURE, field.label) for field in fields)
     by_name = {field.label: field for field in fields}
     assert by_name["length_mm"].meaning.label == "Mechanism envelope length"
@@ -224,7 +225,7 @@ def test_physical_layout_selection_uses_same_semantics_without_plot_or_signal_ch
         vacuum_inner_diameter_mm=data["vacuum_inner_diameter_mm"],
         optical_references_mm=(data["optical_reference_local_z_mm"],),
         active_length_mm=data["plate_thickness_mm"], bore_diameter_mm=0.1,
-        excitation_enabled=True,
+        excitation_enabled=True, layout_role="",
     )
     emitted = []
     view.component_selected.connect(lambda *args: emitted.append(args))

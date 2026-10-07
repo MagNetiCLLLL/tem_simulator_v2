@@ -49,6 +49,34 @@ GPU_TEST_FUNCTIONS = {
     "test_wave_grid.py": (
         "test_cuda_fourier_refinement_and_nonlinear_carriers_preserve_phase_and_rejections",
     ),
+    "test_tilted_column_wave.py": (
+        "test_real_gpu_tilted_objective_matches_cpu_complex_checkpoint",
+        "test_real_column_higher_order_magnetic_residual_runs_on_cpu_and_gpu",
+    ),
+    "test_tilted_spherical_column.py": (
+        "test_real_gpu_tilted_cs_matches_cpu_and_mechanical_ray_response",
+        "test_captured_default_electric_tail_tilted_cs_cpu_gpu",
+    ),
+    "test_posed_aberration_wave.py": (
+        "test_real_gpu_tilted_screen_matches_cpu_absolute_complex_field",
+    ),
+    "test_wave_magnetic_residual.py": (
+        "test_actual_gpu_matches_cpu_full_complex_envelope",
+    ),
+    "test_posed_multipole_wave.py": (
+        "test_real_gpu_native_multipole_residual_matches_cpu",
+    ),
+    "test_tilted_multipole_column.py": (
+        "test_actual_tilted_stigmator_gpu_and_cpu_wave_match_particle_centroid",
+    ),
+    "test_posed_wave_aperture.py": (
+        "test_gpu_uses_same_swept_geometry_and_contacts",
+    ),
+    "test_tilted_aperture_column.py": (
+        "test_closed_tilted_plate_only_absorbs_local_slab_on_actual_gpu",
+        "test_tilted_c2_finite_shoulder_diffraction_cpu_gpu_complex_parity",
+        "test_tilted_c2_broad_beam_total_transmission_stabilizes_on_gpu",
+    ),
 }
 GPU_TEST_IDS = frozenset(
     f"tests/{filename}::{name}"

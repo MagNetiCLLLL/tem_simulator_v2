@@ -11,14 +11,16 @@ def captured_scene():
     from temsim.optics.column import default_state
     from temsim.magnetic_field_scene import prepare_magnetic_scene
     from temsim.test_electron_scene import prepare_test_electron_scene
+    from temsim.physics.instrument_electric import instrument_electric_end_mm
     with numerical_job(1):
         state=default_state()
         # The analytic axial clock below requires an undeflected column;
         # raster-ready application defaults otherwise apply transverse kicks.
         state.ac_deflector.scan_enabled = False
         state.descan_deflector.scan_enabled = False
-        magnetic=prepare_magnetic_scene(state,z_limits_mm=(0.,3026.4))
-        scene = prepare_test_electron_scene(state,magnetic,z_limits_mm=(0.,3026.4))
+        limits = (0., instrument_electric_end_mm(state))
+        magnetic=prepare_magnetic_scene(state,z_limits_mm=limits)
+        scene = prepare_test_electron_scene(state,magnetic,z_limits_mm=limits)
         # This suite isolates the scalar/compiled full-field pusher. The
         # application's shared production-column dispatch is covered by
         # test_shared_electron_column, including real CPU/compiled parity.
@@ -73,7 +75,7 @@ def _assert_axis_path_parity(scene, cfg, actual, reference):
         np.testing.assert_allclose(result.path_length_m, z - z[0], rtol=2e-10, atol=2e-12)
         np.testing.assert_allclose(result.kinetic_energy_ev, energy, rtol=0., atol=1e-5)
         np.testing.assert_allclose(result.momentum_kg_m_per_s[:, 2], momentum, rtol=2e-7, atol=1e-29)
-        # Independent absolute clock accuracy: 0.1 fs over the 3.0264 m
+        # Independent absolute clock accuracy: 0.1 fs over the complete column
         # accelerated path. Recorded step/tolerance refinement checks this
         # additional bound; backend-to-backend tolerances below are unchanged.
         np.testing.assert_allclose(result.time_s, clock, rtol=0., atol=1e-16)
@@ -112,11 +114,14 @@ def test_compiled_scalar_fields_match_native_every_source_and_support(captured_s
 
 
 @pytest.mark.parametrize('angle,azimuth,length,compiled_step',[
-    (0.,0.,3.0264,.001), (0.,0.,3.0264,.0005), (2.61,0.,3.0264,.001),
+    (0.,0.,None,.001), (0.,0.,None,.0005), (2.61,0.,None,.001),
     (5.,45.,.55,.001), (175.,45.,.001,.001),
 ])
 def test_compiled_complete_paths_match_reference_and_hardware_stops(captured_scene,angle,azimuth,length,compiled_step):
     scene=captured_scene
+    # A full-column path follows the captured geometry after an assembly
+    # revision; short and backwards trajectories keep their explicit lengths.
+    length = scene.default_path_length_m if length is None else length
     cfg=settings(scene,polar_angle_deg=angle,azimuth_angle_deg=azimuth,max_path_length_m=length)
     reference=trace_test_electron(scene,cfg,use_compiled=False)
     actual=trace_test_electron(scene,replace(cfg,step_m=compiled_step),use_compiled=True)

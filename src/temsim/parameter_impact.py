@@ -272,18 +272,23 @@ def _describe_parameter_impact(part, path, *, by_key=None, simulation_mode="idea
         return _impact("unknown", "Source part not connected", "The parameter's source part is unavailable; its physical route needs verification.")
     from temsim.optics.electron_gun.tip_assembly import is_tip_part, PART_FIELDS
     connected = simulation_mode in MODE_BY_KEY and MODE_BY_KEY[simulation_mode].available
-    from temsim.lens_pose import PHYSICAL_POSE_FIELDS, supports_physical_lens_pose
+    from temsim.lens_pose import PHYSICAL_POSE_FIELDS, supports_physical_lens_pose, column_pose_kind, physical_pose_description
     physical_pose = (kind == "parts" and supports_physical_lens_pose(row) and
                      (field in PHYSICAL_POSE_FIELDS or
                       (field == "model_3d" and len(path) >= 5 and path[3] == "transform"
                        and path[4] in {"offset_mm", "rotation_deg"})))
     if physical_pose:
-        return _impact("active" if connected else "unknown", "Physical magnetic lens placement",
-                       "The rigid offset and rotation move the lens magnetic field with its physical assembly and child hardware. "
-                       "Rotations are applied about the physical assembly centre; new rotation inputs use mrad. "
-                       "Field strength remains prescribed by the active excitation/field model, not inferred from winding thickness.",
-                       effects=("geometry", "magnetic_field", "beam_clearance"),
-                       results=("3d_preview", "physical_layout", "magnetic_field", "ray_transport", "beam_transmission"))
+        field_only = column_pose_kind(row) == "field"
+        aperture_pose = _is_aperture(row)
+        effects = (("magnetic_field",) if field_only else
+                   ("geometry", "beam_clearance") if aperture_pose else
+                   ("geometry", "magnetic_field", "beam_clearance"))
+        return _impact("active" if connected else "unknown",
+                       "Local field-coordinate placement" if field_only else "Physical component placement",
+                       physical_pose_description(row) + ("" if aperture_pose else
+                           " Field strength is prescribed by excitation, not inferred from winding thickness."), effects=effects,
+                       results=("3d_preview", "physical_layout", "ray_transport", "beam_transmission") +
+                               (() if aperture_pose else ("magnetic_field",)))
     if connected and kind == "parts" and row.get("key") == "feg_accelerator" and field == "electrode_thickness_mm":
         return _impact("active", "Accelerator conducting boundary",
                        "Each ring's thickness enters the connected tip-to-anode electrostatic boundary and field cache identity for the curved-tip particle source.",
@@ -365,6 +370,17 @@ def _describe_parameter_impact(part, path, *, by_key=None, simulation_mode="idea
                            results=("3d_preview", "material_model", "field_map_validity"))
         return impact
     if aperture:
+        if field == "plate_thickness_mm" and supports_physical_lens_pose(row):
+            from temsim.lens_pose import physical_pose_values
+            pose = physical_pose_values(row)
+            tilted = bool(pose["rotation_x_mrad"] or pose["rotation_y_mrad"])
+            return _impact("active" if tilted else "inactive", "Finite tilted aperture plate",
+                           "Positive declared thickness defines the finite absorbing plate for tilted ray and wave interception, "
+                           "and the 3D material extent. Zero/unspecified thickness is rejected by tilted coherent propagation. "
+                           "Untilting retains the existing thin-plane optical model; it does not infer thickness from a display envelope.",
+                           effects=("geometry", "beam_clearance") if tilted else ("geometry", "display"),
+                           results=("3d_preview", "physical_layout", "ray_transport", "beam_transmission") if tilted
+                           else ("3d_preview", "physical_layout"))
         if field == "maximum_radius_mm":
             return _impact("active", "Operating range constraint",
                            "This sets the permitted runtime opening range; it does not itself set the current aperture diameter.",

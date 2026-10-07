@@ -27,17 +27,36 @@ def _transmits(aperture, x_mm, y_mm):
 
 
 def clip_posed_apertures(state, apertures, z, x, y, alive, blocked_z, blocked_key):
-    """Intersect tilted aperture planes, testing their local openings exactly."""
+    """Intersect placed openings, including declared finite tilted plates."""
     for aperture in apertures:
-        if not aperture.enabled or not bool(getattr(aperture, "installed", True)):
+        if (not aperture.enabled or not bool(getattr(aperture, "installed", True))
+                or not bool(getattr(aperture, "inserted", True))):
             continue
         registration = posed_aperture_registration(state, aperture)
         if registration is None:
             continue
+        from temsim.physics.posed_wave_aperture import PosedWaveAperture
+        parts = getattr(getattr(state, "_resolved_assembly", None), "parts", ())
+        part = next((item for item in parts if item.key == aperture.key), None)
+        thickness = getattr(aperture, "plate_thickness_mm", None)
+        if thickness is None and part is not None:
+            thickness = part.data.get("plate_thickness_mm")
+        tilted = not np.array_equal(registration.rotation_array[2], (0., 0., 1.))
+        finite_plate = (PosedWaveAperture.from_component(state, aperture, registration)
+                        if tilted and thickness is not None and float(thickness) > 0 else None)
         rotation, offset = registration.rotation_array, registration.origin_array_m*1e3
         for index in range(len(z)-1):
             start = np.column_stack((x[index]*1e3, y[index]*1e3, np.full(len(alive), z[index])))
             end = np.column_stack((x[index+1]*1e3, y[index+1]*1e3, np.full(len(alive), z[index+1])))
+            if finite_plate is not None:
+                fraction = finite_plate.first_contact_fraction(start, end)
+                hit_z = z[index]+fraction*(z[index+1]-z[index])
+                hit = np.isfinite(fraction) & (alive | (np.isfinite(blocked_z) & (blocked_z > hit_z+1e-9)))
+                alive[hit] = False
+                blocked_z[hit] = hit_z[hit]
+                for ray_index in np.flatnonzero(hit):
+                    blocked_key[int(ray_index)] = aperture.key
+                continue
             local_start, local_end = (start-offset) @ rotation, (end-offset) @ rotation
             delta = local_end-local_start
             moving = np.abs(delta[:, 2]) > 1e-14
@@ -111,6 +130,7 @@ def clip_segment(
         for aperture in apertures
         if aperture.enabled
         and bool(getattr(aperture, "installed", True))
+        and bool(getattr(aperture, "inserted", True))
         and posed_aperture_registration(state, aperture) is None
         and z_min <= float(aperture.z_mm) <= z_max
     ]

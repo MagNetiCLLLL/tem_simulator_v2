@@ -47,6 +47,11 @@ class FrozenLensAberrationKick:
             global_plane += (self.z_mm*1e-3-global_plane[:, 2, None])*outgoing
         return global_plane[:, 0], outgoing[:, 0], global_plane[:, 1], outgoing[:, 1]
 
+    def apply_canonical(self, x, tx, y, ty, **kwargs):
+        """Small-inclination action shared with coherent Cs propagation."""
+        from temsim.physics.posed_aberration_wave import apply_canonical_ray_kick
+        return apply_canonical_ray_kick(self, x, tx, y, ty, **kwargs)
+
 
 def posed_spherical_kicks(state, z0, z1):
     from temsim.lens_pose import has_lens_pose, lens_pose_registration

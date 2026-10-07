@@ -24,7 +24,7 @@ from scipy.optimize import minimize_scalar
 
 from temsim.cpu_resources import NumericalJobCancelled, numerical_job
 from temsim.gui.ray_extent_data import completed_ray_extent
-from temsim.optics.direct_alignment import (canonical_transfers, _canonical_source_basis,
+from temsim.optics.direct_alignment import (canonical_transfers,
     _active_column_electric_field, _column_reference_momentum)
 from temsim.physics.core import fields, E
 from temsim.physics.first_order import linear_map_properties
@@ -95,10 +95,11 @@ class ConjugateAtlas:
     detail: str = "Nominal zero-loss, paraxial optical map; no material or clipping qualification."
     image_tolerance_m_per_rad: float = IMAGE_CONJUGACY_TOLERANCE_M_PER_RAD
     source_g_m1: np.ndarray | None = None
+    source_c_m1: np.ndarray | None = None
     _fine: object = field(init=False, repr=False, compare=False)
     _coarse: object = field(init=False, repr=False, compare=False)
     _scaled: np.ndarray = field(init=False, repr=False, compare=False)
-    _g: object = field(init=False, repr=False, compare=False)
+    _c: object = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
         z = np.asarray(self.z_mm, dtype=float)
@@ -128,7 +129,15 @@ class ConjugateAtlas:
         if g.shape != z.shape or not np.all(np.isfinite(g)):
             raise ValueError("Canonical source gauge requires one finite Larmor rate per atlas node")
         object.__setattr__(self, "source_g_m1", _readonly(g))
-        object.__setattr__(self, "_g", CubicSpline(z, g, extrapolate=False))
+        if self.source_c_m1 is None:
+            c = np.zeros((len(z), 2, 2))
+            c[:, 0, 1], c[:, 1, 0] = g, -g
+        else:
+            c = np.asarray(self.source_c_m1, dtype=float)
+        if c.shape != (len(z), 2, 2) or not np.isfinite(c).all():
+            raise ValueError("Canonical source gauge requires one finite 2x2 gradient per atlas node")
+        object.__setattr__(self, "source_c_m1", _readonly(c))
+        object.__setattr__(self, "_c", CubicSpline(z, c, axis=0, extrapolate=False))
 
     @property
     def lower_z_mm(self):
@@ -143,6 +152,11 @@ class ConjugateAtlas:
         value = np.concatenate((spline(z), spline(z, 1)*(_LENGTH_M/1e-3)), axis=-2)
         return value
 
+    def _source_basis(self, z):
+        basis = np.eye(4)
+        basis[2:, :2] = self._c(z)
+        return basis
+
     def transfer_matrix(self, reference_z_mm, target_z_mm):
         """Selected-plane canonical input map, with mechanical target output.
 
@@ -154,7 +168,7 @@ class ConjugateAtlas:
                 raise ValueError("Requested reference/target is outside the supported atlas")
         reference = self._at(reference_z_mm)
         _require_conditioned(reference)
-        basis = _scaled_maps(_canonical_source_basis(float(self._g(reference_z_mm))))
+        basis = _scaled_maps(self._source_basis(reference_z_mm))
         return _physical_map(self._at(target_z_mm) @ np.linalg.solve(reference, basis))
 
 
@@ -234,17 +248,29 @@ def build_conjugate_atlas(result, *, cancelled=None) -> ConjugateAtlas:
         else:
             momenta = np.asarray([_column_reference_momentum(state, value, electric_field) for value in z])
         source_g = -E*np.asarray(magnetic)/(2.0*momenta)
+        source_c = None
+        from temsim.physics.lens_field_provider import active_vector_providers
+        from temsim.physics.posed_column_fields import capture_posed_column_fields
+        vector_providers = active_vector_providers(state)
+        posed_fields = capture_posed_column_fields(state)
+        if vector_providers or posed_fields:
+            from temsim.optics.direct_alignment import canonical_source_basis
+            source_c = np.stack([canonical_source_basis(state, value,
+                momentum_kg_m_s=float(np.broadcast_to(momenta, z.shape)[index]),
+                electric_field=electric_field, position_xy_m=maps[float(value)].position_offset_m,
+                vector_providers=vector_providers, posed_fields=posed_fields)[2:, :2]
+                for index, value in enumerate(z)])
     _check_cancelled(cancelled)
     matrices = np.stack([maps[float(value)].matrix for value in z])
     backends = sorted(str(value) for value in getattr(state, "_active_backends_used", ()))
     backend_text = ", ".join(backends) if backends else "CPU first-order matrices"
     detail = (f"Captured nominal zero-loss paraxial optics | {start:.9g}–{stop:.9g} mm | "
         f"{len(z)} cached nodes | {backend_text}. "
-        "Uses installed lens, stigmator and deflector fields. Near-tip/gun propagation and curved "
+        "Uses installed lens, stigmator and deflector fields and canonical increments about the captured reference trajectory. Near-tip/gun propagation and curved "
         "energy-filter coordinates are excluded. Conjugacy does not guarantee particle transmission, "
         "absence of aberrations or material coherence. Upstream entries describe reciprocal optical "
         "relationships, not backward electron propagation or virtual-image continuations.")
-    return ConjugateAtlas(z, matrices, detail, source_g_m1=source_g)
+    return ConjugateAtlas(z, matrices, detail, source_g_m1=source_g, source_c_m1=source_c)
 
 
 def _minimum_indices(values):
@@ -272,7 +298,7 @@ def find_conjugate_planes(atlas: ConjugateAtlas, reference_z_mm, *, cancelled=No
     reference = atlas._at(reference_z)
     _require_conditioned(reference)
     condition = float(np.linalg.cond(reference))
-    source_basis = _scaled_maps(_canonical_source_basis(float(atlas._g(reference_z))))
+    source_basis = _scaled_maps(atlas._source_basis(reference_z))
     inverse = np.linalg.solve(reference, source_basis)
     solve_residual = float(np.linalg.norm(reference @ inverse-source_basis, ord=2)) / max(
         float(np.linalg.norm(source_basis, ord=2)), np.finfo(float).tiny)

@@ -78,6 +78,7 @@ class _ViewRequest:
     bounds: tuple | None
     bins: int
     flow_bins: int
+    magnetic_gauge: object = None
 
 
 def _derive_view(request, cancel_event):
@@ -91,7 +92,7 @@ def _derive_view(request, cancel_event):
 
     check_cancelled()
     checkpoint = request.checkpoint
-    if request.mode == "wave_flow" and request.axial_bz_t is None:
+    if request.mode == "wave_flow" and request.axial_bz_t is None and request.magnetic_gauge is None:
         raise ValueError("Probability flow needs the recorded axial magnetic field at this plane")
     modes = checkpoint.beam.modes
     rows = getattr(modes, "rows", None)
@@ -135,7 +136,8 @@ def _derive_view(request, cancel_event):
         observable = None
         if flow is not None:
             observable = column_mode_observables(mode, reference_current_a=checkpoint.reference_current_a,
-                axial_bz_t=request.axial_bz_t, maximum_working_bytes=working)
+                axial_bz_t=request.axial_bz_t, magnetic_gauge=request.magnetic_gauge,
+                plane_z_mm=checkpoint.plane_z_mm, maximum_working_bytes=working)
             weight = observable.cell_probability_per_tip_electron
         elif angular:
             spectrum = canonical_angular_spectrum(mode, maximum_working_bytes=working)
@@ -210,12 +212,13 @@ class WaveBeamAnalysis(QObject):
     BINS = 128
     FLOW_BINS = 16
 
-    def __init__(self, analysis, checkpoint, axial_bz_t, maximum_working_bytes):
+    def __init__(self, analysis, checkpoint, axial_bz_t, maximum_working_bytes, *, magnetic_gauge=None):
         super().__init__(analysis.owner)
         if axial_bz_t is not None and not math.isfinite(axial_bz_t):
             raise ValueError("Wave view needs the actual axial magnetic field")
         self.analysis, self.owner = analysis, analysis.owner
         self.checkpoint, self.bz = checkpoint, None if axial_bz_t is None else float(axial_bz_t)
+        self.magnetic_gauge = magnetic_gauge
         self.maximum_working_bytes = maximum_working_bytes
         self.saved_mode, self.saved_colour = analysis.mode, analysis.colour_combo.currentData()
         self.ranges = {}
@@ -335,7 +338,8 @@ class WaveBeamAnalysis(QObject):
         self._pending_key, self.busy = key, True
         self._cached_key, self._data = None, None
         request = _ViewRequest(self.checkpoint, key[0], key[1], self.bz,
-            self.maximum_working_bytes, key[2], key[3], self.BINS, self.FLOW_BINS)
+            self.maximum_working_bytes, key[2], key[3], self.BINS, self.FLOW_BINS,
+            self.magnetic_gauge)
         worker = _ViewWorker(self._generation, request)
         worker.signals.ready.connect(self._ready)
         worker.signals.failed.connect(self._failed)
@@ -401,7 +405,7 @@ class WaveBeamAnalysis(QObject):
         self.analysis.legend.setText(
             f"Probability flow J⊥/Jz · longest arrow {maximum:.6g} mrad · not measured particle paths")
         self.analysis.legend.setToolTip(
-            "Kinetic probability-current direction, including the actual axial magnetic field. "
+            "Kinetic probability-current direction, including the recorded magnetic vector potential. "
             "Currents are summed over the selected modes and each display cell before division by axial current. "
             "Arrow length uses a common display scale; it is not a propagated distance or trajectory. "
             "Background: forward current per display bin.")
@@ -478,7 +482,10 @@ class WaveBeamAnalysis(QObject):
                 a.legend.setText("Single-mode phase (rad) · no mixture phase")
                 a.legend.setToolTip(data["phase_reference"])
             elif self.mode == "wave_angles":
-                a.legend.setText("Canonical angles | Bz not recorded" if self.bz is None else f"Canonical angles | Bz {self.bz:.6g} T")
+                a.legend.setText("Canonical angles | recorded posed-lens gauge"
+                    if self.magnetic_gauge is not None and self.magnetic_gauge.fields
+                    else "Canonical angles | Bz not recorded" if self.bz is None
+                    else f"Canonical angles | Bz {self.bz:.6g} T")
                 a.legend.setToolTip("Full complex phase, in the inherited laboratory gauge. Inside a magnetic field these are not kinetic angles.")
             elif self.mode == "wave_current":
                 a.legend.setText(f"Visible current {float(self.values.sum()):.7g} pA · no flux renormalisation")

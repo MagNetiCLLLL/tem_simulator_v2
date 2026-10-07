@@ -13,7 +13,7 @@ No particle propagation or magnetostatic solve is started by this module.
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
 from hashlib import sha256
 import inspect
@@ -531,6 +531,10 @@ def _source_field_inputs(source, original_provider, reference):
     from temsim.optics.electron_gun.alignment import GunDeflector, GunStigmator
 
     provider = source.provider
+    from temsim.physics.posed_column_fields import FrozenPosedMultipole
+    if type(provider) is FrozenPosedMultipole:
+        return ("posed_native_multipole", asdict(provider), {},
+                "Rigid native transverse multipole; original axial envelope and finite support; local paraxial model.")
     if type(original_provider) is MappedLensFieldProvider and type(provider) is FrozenMappedField:
         field_map = source.field_map
         if not _mapped_inputs_are_supported(source, original_provider):
@@ -684,13 +688,22 @@ def _extra_sources(state, z_clip, notes):
     else:
         momentum_over_charge = 0.
     sources = []
+    from temsim.physics.posed_column_fields import capture_posed_column_fields
+    posed = capture_posed_column_fields(state)
+    posed_components = {field.component_key for field in posed}
+    posed_coils = {field.lens_key for field in posed if field.event_z_mm is not None}
 
-    def append(key, provider, support_mm, radius, category, label, *, known_zero=False, reference=None):
+    def append(key, provider, support_mm, radius, category, label, *, known_zero=False, reference=None, global_bounds=None):
         low, high = np.asarray(support_mm, dtype=float) * 1e-3
         low, high = max(low, z_clip[0]), min(high, z_clip[1])
         if high <= low:
             return
-        bounds = _frozen_array(((-radius, -radius, low), (radius, radius, high)))
+        if global_bounds is None:
+            bounds = _frozen_array(((-radius, -radius, low), (radius, radius, high)))
+        else:
+            bounds = np.array(global_bounds, copy=True)
+            bounds[:, 2] = (low, high)
+            bounds = _frozen_array(bounds)
         source = _Source(str(key), provider, bounds, radius, None, category, str(label), bool(known_zero))
         sources.append(_bind_source_identity(source, reference=reference))
 
@@ -700,6 +713,8 @@ def _extra_sources(state, z_clip, notes):
         if key in seen or not bool(getattr(original, "enabled", False)):
             continue
         seen.add(key)
+        if key in posed_components:
+            continue
         component = deepcopy(original, {id(state): state})
         label = str(getattr(component, "name", getattr(component, "label", key)))
         is_stigmator = hasattr(component, "quadrupole_tensor_m2")
@@ -737,6 +752,8 @@ def _extra_sources(state, z_clip, notes):
     # One definition supplies production interval forces and diagnostic B.
     by_key = {str(component.key): component for component in components}
     for provider in column_dipole_fields(state):
+        if provider.key in posed_coils:
+            continue
         component = by_key[provider.key.rsplit(":", 1)[0]]
         label = str(getattr(component, "name", getattr(component, "label", component.key)))
         thickness_mm = (provider.upper_m-provider.lower_m)*1e3
@@ -750,6 +767,16 @@ def _extra_sources(state, z_clip, notes):
                    "kick_xy_rad": (provider.event_dx_rad, provider.event_dy_rad),
                })
         notes.append(f"{label}: shared uniform finite-coil magnetic field; effective length {thickness_mm:.6g} mm. No fringe shape is inferred.")
+
+    for provider in posed:
+        component = by_key[provider.component_key]
+        label = str(getattr(component, "name", getattr(component, "label", provider.component_key)))
+        append(provider.lens_key, provider, provider.field_support_mm, provider.radial_support_m,
+               "deflector" if provider.event_z_mm is not None else "stigmator" if hasattr(component, "quadrupole_tensor_m2") else "corrector",
+               label, known_zero=not provider.scale, global_bounds=provider.bounds_m,
+               reference={"reference_momentum_kg_m_s": provider.reference_momentum,
+                          "reference_charge_c": charge, "captured_time_s": provider.captured_time_s})
+        notes.append(f"{label}: rigidly placed native transverse magnetic field; original envelope and support retained.")
 
     gun = getattr(state, "electron_gun", None)
     if gun is not None:

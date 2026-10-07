@@ -58,13 +58,16 @@ def transport_context_identity(scene):
     if any(value is None for value in apertures):
         return None
     bores = [{"key": b.key, "lower_m": b.lower_m, "upper_m": b.upper_m,
-              "inner_m": b.inner_m, "outer_m": b.outer_m if np.isfinite(b.outer_m) else None}
+              "inner_m": b.inner_m, "outer_m": b.outer_m if np.isfinite(b.outer_m) else None,
+              "registration": asdict(b.registration) if b.registration is not None else None}
              for b in scene._bores]
-    return json_digest({"schema": "diagnostic-transport-context-v1",
+    registrations = getattr(scene, "_aperture_registrations", ()) or (None,) * len(apertures)
+    return json_digest({"schema": "diagnostic-transport-context-v2",
         "numerical_field": scene.numerical_identity,
         "bounds_m": np.asarray(scene.diagnostic_bounds_m).tolist(),
         "electric_bounds_m": np.asarray(scene.electric_bounds_m).tolist(),
         "apertures": apertures, "bores": bores, "unbounded_outer_radius": "None means infinity",
+        "aperture_registrations": [asdict(value) if value is not None else None for value in registrations],
         "flat_cathode": scene._flat_cathode, "post_exit_ground": scene._post_exit_ground,
         "unsupported_stops": scene._unsupported_stops,
         "column_model": getattr(scene, "_column_identity", None),
@@ -79,7 +82,10 @@ _IMPLEMENTATION_FILES = (
     "physics/discrete_gradient.py", "physics/static_energy_lorentz.py",
     "physics/grounded_particle_step.py", "physics/instrument_electric.py",
     "physics/core.py", "physics/electrostatic_column_transport.py",
+    "physics/posed_aberrations.py", "physics/posed_aberration_wave.py", "physics/vector_field_transport.py",
+    "physics/ray_integrator.py", "physics/lens_field_provider.py",
     "test_electron_column.py",
+    "lens_pose.py", "physics/column_wall.py", "physics/aperture_clipping.py",
     "physics/relativistic_lorentz.py", "optics/electron_gun/aperture.py",
     "optics/model.py", "optics/condenser_aperture.py", "optics/objective_aperture.py",
     "optics/selected_area_aperture.py", "optics/energy_filter_entrance_aperture.py",

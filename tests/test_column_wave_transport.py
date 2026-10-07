@@ -86,6 +86,104 @@ def test_segmented_column_uses_actual_slotted_propagation_plan(tmp_path, monkeyp
             <= resources["maximum_working_bytes"])
 
 
+def _unexcited_posed_column(**pose):
+    """Real installed hardware; isolate its mask from magnetic focusing."""
+    from types import SimpleNamespace
+    source = default_state()
+    assembly = replace(source._resolved_assembly, parts=tuple(
+        replace(part, data={**part.data, **pose}) if part.key == "objective_lens" else part
+        for part in source._resolved_assembly.parts))
+    for lens in source.lenses:
+        lens.enabled = False
+    return SimpleNamespace(lenses=source.lenses, condenser_system=source.condenser_system,
+        _resolved_assembly=assembly, stigmators=[], corrector_elements=[], deflectors=[],
+        apertures=[], recording_planes=[], simulation_mode="ideal", beam_voltage_kv=300.,
+        step_mm=.1, history_step_mm=.1, acceleration_enabled=False, acceleration_backend="CPU",
+        projector_mode="diffraction", equivalent_image_lenses_enabled=False, sample=source.sample)
+
+
+@pytest.mark.parametrize("offset,blocked", [(.5, True), (-.5, False)])
+def test_unexcited_moved_bore_matches_particle_absorption_and_has_no_old_wall(offset, blocked, tmp_path):
+    from temsim.physics.column_wave import _prepare_column, _propagate_column_segmented
+    from temsim.physics.column_wall import clip_column_wall
+    from temsim.physics.wave_grid import WaveGridNumerics
+    from temsim.physics.wave_checkpoint_store import ExecutedWaveStore
+    state = _unexcited_posed_column(offset_x_mm=offset)
+    prepared = _prepare_column(state, 1620., 1620.1, .1)
+    mode = checkpoint().beam.modes[0]
+    plane = replace(mode.plane, origin_m=np.array((-2.5e-3, 0.)),
+                    amplitude=np.ones((8, 8), complex)/8)
+    source = replace(checkpoint(), plane_z_mm=1620.,
+        beam=replace(checkpoint().beam, modes=(replace(mode, plane=plane),)))
+    result = _propagate_column(state, source, 1620.1, _prepared=prepared,
+                              grid_numerics=WaveGridNumerics(compute_backend="CPU"))
+    alive, _, _ = clip_column_wall(state, [1620., 1620.1],
+        np.full((2, 1), -2.5e-3), np.zeros((2, 1)))
+    assert bool(alive[0]) is not blocked
+    assert result.beam.total_weight == pytest.approx(0. if blocked else source.beam.total_weight, abs=1e-12)
+    losses = result.record["modes"][0]["losses"]
+    assert sum(row["lost_weight"] for row in losses) == pytest.approx(
+        source.beam.total_weight-result.beam.total_weight, abs=1e-12)
+    segmented, _ = _propagate_column_segmented(state, source, 1620.1, _prepared=prepared,
+        store=ExecutedWaveStore(tmp_path, "moved-bore", 1<<26), segment_steps=1,
+        grid_numerics=WaveGridNumerics(compute_backend="CPU"))
+    assert segmented.beam.total_weight == pytest.approx(result.beam.total_weight, abs=1e-12)
+    if blocked:
+        # Same entrance loss, not a delayed mask at the next integration node.
+        assert segmented.record["modes"][0]["losses"][0]["z_mm"] == 1620.
+        assert losses[0]["z_mm"] == 1620.
+    other = _prepare_column(_unexcited_posed_column(offset_x_mm=-offset), 1620., 1620.1, .1)
+    assert prepared[0].signature != other[0].signature
+
+
+def test_unexcited_tilted_hardware_keeps_its_oblique_wave_mask():
+    from temsim.physics.column_wave import _prepare_column
+    from temsim.physics.posed_wave_hardware import PosedWaveBore
+    state = _unexcited_posed_column(rotation_y_mrad=1.)
+    plan, _, stops, _ = _prepare_column(state, 1620., 1620.1, .1)
+    assert not plan.mapped_fields  # Turning B off must not remove the bore.
+    for items in stops.values():
+        assert any(isinstance(item, PosedWaveBore) for item in items)
+    bore = next(item for item in stops[0] if isinstance(item, PosedWaveBore))
+    assert not np.array_equal(bore.registration.rotation_array[2], (0., 0., 1.))
+
+
+def test_wave_bore_events_follow_axial_placement_and_preserve_stationary_tube():
+    from test_lens_pose_clipping import _state
+    from temsim.physics.column_wave import _wave_bores
+    state = _state(offset_x=.5, tube_radius=.75)
+    state._resolved_assembly.parts[0].data["offset_z_mm"] = 3.
+    fixed, moved = _wave_bores(state, 0., 25.)
+    assert len(fixed) == len(moved) == 1
+    assert fixed[0].start_z_mm == 0. and fixed[0].end_z_mm == 20.
+    assert moved[0].start_z_mm == 3. and moved[0].end_z_mm == 23.
+    assert moved[0].offset_x_mm == .5
+    assert _wave_bores(state, 24., 25.)[1] == ()
+
+
+@pytest.mark.parametrize("radius", [0., -1., np.inf, np.nan])
+def test_placed_wave_bore_keeps_particle_geometry_validation(radius):
+    from test_lens_pose_clipping import _state
+    from temsim.physics.column_wave import _wave_bores
+    with pytest.raises(ValueError, match="finite and positive"):
+        _wave_bores(_state(offset_x=.5, bore_radius=radius), 5., 15.)
+
+
+def test_wave_aperture_uses_parent_translation_and_original_local_mask():
+    from test_lens_pose_clipping import _state
+    from temsim.physics.column_wave import _wave_apertures
+    state = _state(offset_x=.5, aperture=True)
+    state._resolved_assembly.parts[0].data["offset_z_mm"] = 3.
+    apertures = _wave_apertures(state, 14., 16.)
+    assert len(apertures) == 1 and apertures[0].z_mm == 15.
+    x = np.array((.5, 0., .62))
+    np.testing.assert_array_equal(apertures[0].transmission_mask(x, np.zeros(3)), [True, False, False])
+    assert _wave_apertures(state, 11., 13.) == []
+    state._resolved_assembly.parts[0].data["rotation_y_mrad"] = 1.
+    with pytest.raises(ValueError, match="declared positive plate_thickness_mm"):
+        _wave_apertures(state, 14., 16.)
+
+
 def test_regrid_retains_phase_carriers_without_fitting_or_cropping():
     from temsim.optics.electron_gun.tip_coherence import wavelength_m
     mode = checkpoint().beam.modes[0]
@@ -314,13 +412,16 @@ def test_grouped_noncommuting_paths_retain_absolute_complex_field_and_affine_act
     np.testing.assert_allclose(grouped.full_amplitude(2e-12), sequential.full_amplitude(2e-12), rtol=2e-10, atol=2e-12)
 
 
-@pytest.mark.parametrize("event", ("aperture", "kick_x", "kick_y", "spherical", "hex_normal", "hex_skew", "wall"))
+@pytest.mark.parametrize("event", ("aperture", "kick_x", "kick_y", "spherical", "hex_normal", "hex_skew", "wall", "placed_wall"))
 def test_grouping_stops_before_every_intermediate_hardware_or_nonlinear_operation(event):
     wave, prepared = _resolved_non_gaussian_wave(), _quadratic_fixture()
     plan, radii, stops, _ = prepared
     node = 3
     if event == "aperture":
         stops[node] = (object(),)
+    elif event == "placed_wall":
+        from temsim.physics.column_wave import _ParallelBore
+        stops[node] = (_ParallelBore("moved_wall", plan.z_mm[node], plan.z_mm[node], 1e-4, .5, 0.),)
     elif event.startswith("kick_"):
         getattr(plan, event+"_rad")[node] = 1e-7
     elif event == "spherical":

@@ -119,6 +119,7 @@ class _Preview:
     comparison: object = None
     comparison_error: str | None = None
     axial_bz_t: float | None = None
+    magnetic_gauge: object = None
 
 
 def _intensity_preview(checkpoint, *, cancelled=lambda: False, bins=128):
@@ -189,12 +190,10 @@ class _Signals(QObject):
     finished = Signal(int)
 
 
-def _plane_axial_field(state, z_mm):
+def _plane_magnetic_gauge(state, z_mm):
     """Capture diagnostic metadata from this execution's installed optics."""
-    from temsim.input_io import input_scope
-    from temsim.physics.core import bz
-    with input_scope(state, inherit=False):
-        return float(bz(np.array([z_mm]), state)[0])
+    from temsim.physics.wave_plane_observables import capture_column_plane_magnetic_gauge
+    return capture_column_plane_magnetic_gauge(state, z_mm)
 
 
 class _WaveWorker(QRunnable):
@@ -241,8 +240,11 @@ class _WaveWorker(QRunnable):
             preview = _intensity_preview(result.checkpoint, cancelled=self.event.is_set)
             # Probability current needs the executed magnetic state, not the
             # live instrument which may have changed while this job ran.
-            preview = replace(preview, axial_bz_t=_plane_axial_field(
-                self.state, result.checkpoint.plane_z_mm))
+            gauge = _plane_magnetic_gauge(self.state, result.checkpoint.plane_z_mm)
+            from temsim.physics.wave_plane_observables import checkpoint_magnetic_gauge
+            gauge = checkpoint_magnetic_gauge(gauge, result.checkpoint)
+            preview = replace(preview, magnetic_gauge=gauge,
+                axial_bz_t=None if gauge is None or gauge.fields else gauge.aligned_bz_t)
             if self.pair_context is not None and not self.event.is_set():
                 context = self.pair_context
                 try:

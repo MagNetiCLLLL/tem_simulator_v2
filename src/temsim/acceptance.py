@@ -46,7 +46,7 @@ ACCEPTANCE_SCOPES = {
                 "tests/test_diagnostic_field_identity.py", "tests/test_grounded_field_identity.py",
                 "tests/test_diagnostic_gun_domains.py")),
             "gun-fields/GF-04": ("Grounded instrument coverage and installed filter axial handoff", (
-                "tests/test_instrument_electric.py",)),
+                "tests/test_instrument_electric.py", "tests/test_recording_vacuum_endpoint.py")),
         },
     },
     "electron-execution": {
@@ -121,6 +121,31 @@ ACCEPTANCE_SCOPES = {
                 "tests/test_energy_filter_workspace_views.py")),
             "field-ui/FU-13": ("Settled live edits and latest particle frame gate coherent refresh", (
                 "tests/test_live_beam_refresh.py",)),
+            "field-ui/FU-14": ("Physical assembly sections and bounded workspace presentation", (
+                "tests/test_assembly_section.py", "tests/test_assembly_section_page.py",
+                "tests/test_current_page_tabs.py", "tests/test_ray_compact_layout.py")),
+        },
+    },
+    "lens-geometry": {
+        "description": "Captured lens placement, rigid field registration and physical interception",
+        "evidence_kind": "bounded-numerical-and-offscreen-geometry-checks",
+        "criteria": {
+            "lens-geometry/LG-01": ("Physical lens placement survives capture and renders consistently", (
+                "tests/test_lens_pose_capture.py", "tests/test_lens_pose_rendering.py")),
+            "lens-geometry/LG-02": ("Posed field registration, transport and mechanical interception", (
+                "tests/test_lens_pose_clipping.py", "tests/test_lens_pose_transport.py",
+                "tests/test_rigid_lens_field_registration.py")),
+        },
+    },
+    "receiver-imaging": {
+        "description": "Physical screen and Camera imaging, scan capture and playback",
+        "evidence_kind": "bounded-particle-and-offscreen-receiver-checks",
+        "criteria": {
+            "receiver-imaging/RI-01": ("Receiver signals and scans retain their executed upstream inputs", (
+                "tests/test_receiver_image.py", "tests/test_receiver_scan.py",
+                "tests/test_receiver_scan_link.py", "tests/test_receiver_transport_integration.py")),
+            "receiver-imaging/RI-02": ("Receiver controls, immutable captured scans and playback lifecycle", (
+                "tests/test_receiver_imaging_gui.py", "tests/test_receiver_playback_gui.py")),
         },
     },
     "particle-continuation": {
@@ -198,6 +223,14 @@ ACCEPTANCE_SCOPES = {
                 "tests/test_multislice.py", "tests/test_wave_fft.py", "tests/test_tem_flux_contract.py",
                 "tests/test_stem_cuda_pipeline.py", "tests/test_gpu_capture_contract.py",
                 "tests/test_execution_migration_contract.py")),
+            "coherent-development/CW-08": ("Posed main-column fields, finite aperture absorption and matched ray/wave checkpoints", (
+                "tests/test_posed_lens_wave.py", "tests/test_posed_wave_hardware.py",
+                "tests/test_tilted_column_wave.py", "tests/test_wave_magnetic_residual.py",
+                "tests/test_main_column_pose.py", "tests/test_dpa_plate_thickness.py", "tests/test_posed_column_fields.py",
+                "tests/test_direct_alignment_pose.py",
+                "tests/test_posed_multipole_wave.py", "tests/test_tilted_multipole_column.py",
+                "tests/test_posed_wave_aperture.py", "tests/test_tilted_aperture_column.py",
+                "tests/test_posed_aberration_wave.py", "tests/test_tilted_spherical_column.py")),
         },
     },
 }

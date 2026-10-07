@@ -102,10 +102,17 @@ def _selection_boundary(state, keys):
         if key not in components:
             raise ValueError(f"Unknown section tuning component: {key}")
         component = components[key]
-        dipole_support = [coil.lower_m*1e3 for coil in dipoles
+        dipole_support = [coil.field_support_mm[0] for coil in dipoles
                           if key in coil.drive_keys or coil.key.rsplit(":", 1)[0] == key]
         if dipole_support:
             bounds.append(min(dipole_support))
+            continue
+        from temsim.lens_pose import has_lens_pose
+        if has_lens_pose(state, key):
+            # Native centre/support values cannot bound a rotated body's
+            # action on every ray. Reuse the executed gun, not an unproved
+            # main-column prefix; plan identities still guard continuation.
+            bounds.append(start)
             continue
         from temsim.component_keys import CONDENSER_LENS_KEYS
         if key in CONDENSER_LENS_KEYS:
@@ -244,7 +251,8 @@ def _prefix_matches(old, new, old_index, new_index):
         return False
     count = new_index + 1
     for name in old.__dataclass_fields__:
-        if name in {"signature", "solver_signature", "mapped_fields", "save_index", "checkpoint_index", "electric_field"}:
+        if name in {"signature", "solver_signature", "mapped_fields", "posed_spherical_kicks",
+                    "save_index", "checkpoint_index", "electric_field"}:
             continue
         if name in {"reference_momentum_kg_m_s", "electric_field_identity", "electric_reference_invariant_ev"}:
             if getattr(old, name) != getattr(new, name):
@@ -259,6 +267,13 @@ def _prefix_matches(old, new, old_index, new_index):
     old_maps = {item.lens_key: item for item in old.mapped_fields}
     new_maps = {item.lens_key: item for item in new.mapped_fields}
     boundary = float(new.z_mm[new_index])
+    # Sparse optical actions are ordered events, not one entry per Z node.
+    # A checkpoint contains every action at its plane. Preserve the execution
+    # order of coincident kicks and ignore only actions strictly downstream.
+    old_kicks = tuple(kick for kick in old.posed_spherical_kicks if kick.z_mm <= boundary)
+    new_kicks = tuple(kick for kick in new.posed_spherical_kicks if kick.z_mm <= boundary)
+    if old_kicks != new_kicks:
+        return False
     for key in old_maps.keys() | new_maps.keys():
         before, after = old_maps.get(key), new_maps.get(key)
         if before is not None and after is not None and before.fingerprint == after.fingerprint:

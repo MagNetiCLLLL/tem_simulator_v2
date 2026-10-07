@@ -129,3 +129,126 @@ def test_numerical_limits_and_immutable_arrays():
     with pytest.raises(ValueError): result.phase_rad[0, 0] = 0.
     with pytest.raises(ValueError):
         column_mode_observables(mode(), reference_current_a=-1., axial_bz_t=0.)
+
+
+def _posed_gauge():
+    from scipy.spatial.transform import Rotation
+    from temsim.physics.lens_field_provider import CoordinateRegistration, FrozenAnalyticField
+    from temsim.physics.wave_plane_observables import ColumnPlaneMagneticGauge
+    rotation = Rotation.from_rotvec((.002, -.001, .1)).as_matrix()
+    field = FrozenAnalyticField("posed_lens", ((.3, 0., .006),),
+        CoordinateRegistration((2e-5, -3e-5, 1.5), tuple(map(tuple, rotation))), (-25., 25.), .003)
+    return ColumnPlaneMagneticGauge(1502., .2, (field,))
+
+
+def test_probability_flow_uses_captured_rotated_vector_potential_without_double_count():
+    from temsim.physics.tip_gun_wave import _momentum_velocity
+    gauge, original = _posed_gauge(), mode()
+    # An old scalar metadata value may accompany the new gauge. It must not
+    # be added again when a complete captured gauge is present.
+    result = column_mode_observables(original, reference_current_a=100e-9,
+        axial_bz_t=99., magnetic_gauge=gauge, plane_z_mm=1502.)
+    aligned = column_mode_observables(original, reference_current_a=100e-9, axial_bz_t=.2)
+    xy = original.plane.coordinates_m()
+    field = gauge.fields[0]
+    positions = np.moveaxis(np.concatenate((xy, np.full((1, *xy.shape[1:]), 1.502))), 0, -1)
+    local = field.registration.positions_global_to_local_m(positions)
+    axial = .3*np.exp(-.5*(local[..., 2]/.006)**2)
+    native_a = np.stack((-.5*local[..., 1]*axial, .5*local[..., 0]*axial, np.zeros_like(axial)), axis=-1)
+    posed_a = np.moveaxis(field.registration.vectors_local_to_global(native_a)[..., :2], -1, 0)
+    p = float(_momentum_velocity(300000.)[0])
+    expected = aligned.transverse_current_density_a_per_m2+aligned.axial_current_density_a_per_m2*e/p*posed_a
+    np.testing.assert_allclose(result.transverse_current_density_a_per_m2, expected, rtol=2e-13, atol=1e-9)
+    assert "rigid analytical" in result.gauge
+    with pytest.raises(ValueError, match="exact observation plane"):
+        column_mode_observables(original, reference_current_a=1e-9, magnetic_gauge=gauge, plane_z_mm=1501.)
+
+
+def test_gauge_capture_excludes_vector_lenses_and_is_independent_of_later_controls(monkeypatch):
+    from types import SimpleNamespace
+    from temsim.physics.wave_plane_observables import capture_column_plane_magnetic_gauge
+    import temsim.physics.lens_field_provider as providers
+    import temsim.physics.core as core
+    field = _posed_gauge().fields[0]
+    state = SimpleNamespace(field=field, aligned=.2)
+    calls = []
+    monkeypatch.setattr(providers, "active_vector_providers", lambda current: (current.field,))
+    monkeypatch.setattr(providers, "freeze_vector_provider", lambda provider: provider)
+    def aligned_field(z, current, *, exclude_mapped_keys):
+        calls.append((tuple(z), exclude_mapped_keys))
+        return np.array((current.aligned,)), np.zeros(1), np.zeros(1)
+    monkeypatch.setattr(core, "fields", aligned_field)
+    captured = capture_column_plane_magnetic_gauge(state, 1502.)
+    before = captured.vector_potential_xy_t_m(np.zeros((2, 1)))
+    digest = captured.fingerprint
+    state.aligned = .7
+    state.field = replace(field, terms_t_m=((.9, 0., .006),))
+    np.testing.assert_array_equal(captured.vector_potential_xy_t_m(np.zeros((2, 1))), before)
+    assert captured.fingerprint == digest
+    assert captured.fields == (field,)
+    assert calls == [((1502.,), ("posed_lens",))]
+    assert capture_column_plane_magnetic_gauge(state, 1502.).fingerprint != digest
+
+
+def test_gauge_capture_ignores_unrelated_finite_map_but_rejects_map_at_plane(monkeypatch):
+    from types import SimpleNamespace
+    from temsim.physics.wave_plane_observables import capture_column_plane_magnetic_gauge
+    import temsim.physics.lens_field_provider as providers
+    import temsim.physics.core as core
+    field_map = SimpleNamespace(field_support_mm=(1600., 1700.),
+                                reference_excitation_percent=100., reference_polarity=1)
+    provider = providers.MappedLensFieldProvider("downstream_map", field_map,
+        SimpleNamespace(enabled=True, percent=100., polarity=1), None)
+    state, excluded, frozen = SimpleNamespace(), [], []
+    monkeypatch.setattr(providers, "active_vector_providers", lambda _: (provider,))
+    original_freeze = providers.freeze_vector_provider
+    def freeze(value):
+        frozen.append(value.lens_key)
+        return original_freeze(value)
+    monkeypatch.setattr(providers, "freeze_vector_provider", freeze)
+    def axial_field(z, current, *, exclude_mapped_keys):
+        excluded.append(exclude_mapped_keys)
+        return np.zeros(1), np.zeros(1), np.zeros(1)
+    monkeypatch.setattr(core, "fields", axial_field)
+    for z in (1500., 1800.):
+        captured = capture_column_plane_magnetic_gauge(state, z)
+        assert captured.fields == ()
+    assert frozen == []
+    assert excluded == [("downstream_map",), ("downstream_map",)]
+    with pytest.raises(ValueError, match="vector potential"):
+        capture_column_plane_magnetic_gauge(state, 1650.)
+    assert frozen == ["downstream_map"]
+
+
+def test_dynamic_probability_flow_uses_executed_coil_capture_including_material_continuation():
+    from dataclasses import asdict
+    from temsim.physics.wave_plane_observables import checkpoint_magnetic_gauge
+    from test_posed_multipole_wave import field
+    static = replace(field(0, "uniform"), dynamic=True, captured_time_s=0.)
+    executed = replace(static, polynomial_terms=((1, 0, .05), (0, 1, -.01)), captured_time_s=.3)
+    gauge = replace(_posed_gauge(), plane_z_mm=502., fields=(_posed_gauge().fields[0], static))
+    checkpoint = TipGunCheckpoint(BeamState((mode(),), TIP_REFERENCE), gauge.plane_z_mm, 1e-9,
+        {"schema": "material", "upstream": {"modes": [
+            {"mode_id": mode().mode_id, "posed_column_fields": [asdict(executed)]}]}})
+    result = checkpoint_magnetic_gauge(gauge, checkpoint)
+    assert result.fields == (gauge.fields[0], executed)
+    assert gauge.fields[-1] == static
+    xy = mode().plane.coordinates_m()
+    expected = replace(gauge, fields=(gauge.fields[0], executed))
+    np.testing.assert_array_equal(result.vector_potential_xy_t_m(xy), expected.vector_potential_xy_t_m(xy))
+    assert np.max(abs(result.vector_potential_xy_t_m(xy)-gauge.vector_potential_xy_t_m(xy))) > 0.
+
+
+def test_modes_with_different_or_unknown_dynamic_gauges_cannot_claim_a_common_probability_flow():
+    from dataclasses import asdict
+    from temsim.physics.wave_plane_observables import checkpoint_magnetic_gauge
+    from test_posed_multipole_wave import field
+    first = replace(field(0, "uniform"), dynamic=True, captured_time_s=.1)
+    second = replace(first, polynomial_terms=((1, 0, .07),), captured_time_s=.2)
+    gauge = replace(_posed_gauge(), plane_z_mm=502., fields=(first,))
+    checkpoint = TipGunCheckpoint(BeamState((mode(),), TIP_REFERENCE), gauge.plane_z_mm, 1e-9,
+        {"modes": [{"posed_column_fields": [asdict(value)]} for value in (first, second)]})
+    assert checkpoint_magnetic_gauge(gauge, checkpoint) is None
+    assert checkpoint_magnetic_gauge(gauge, replace(checkpoint, record={"old": "cache"})) is None
+    assert checkpoint_magnetic_gauge(replace(gauge, fields=(replace(first, dynamic=False),)),
+                                     replace(checkpoint, record={"old": "cache"})) is not None

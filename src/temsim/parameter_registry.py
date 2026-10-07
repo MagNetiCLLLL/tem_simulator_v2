@@ -25,6 +25,12 @@ _KNOWN_DYNAMIC = {
         "dynamic_focus_quadrupole_model_status", "dynamic_focus_quadrupole_outer_mm",
         "output_plane_geometry_source", "output_plane_geometry_status"},
     "Aperture": {"maximum_radius_mm"},
+    # SharedDeflectorChannel reads these aliases from the physical host.
+    # Their authoritative geometry already participates in the normal keys;
+    # the layout's compatibility attributes are not independent inputs.
+    "DescanDeflectorComponent": {
+        "mechanical_center_from_tip_mm", "optical_reference_from_tip_mm",
+    },
 }
 for _lens_type in ("CondenserLensState", "AdapterLensComponent", "Tl22LensComponent",
         "Tl21LensComponent", "Tl12LensComponent", "MiniCondenserComponent",

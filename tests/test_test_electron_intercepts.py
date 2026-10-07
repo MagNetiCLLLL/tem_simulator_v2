@@ -167,3 +167,61 @@ def test_default_captured_hardware_accepts_compilation_and_agrees_at_all_bore_fa
                 for radius in (bore.inner_m*.99, bore.inner_m*1.01):
                     assert_matches(scene, (radius, 0., face-1e-6), (radius, 0., face+1e-6), packed)
                     assert_matches(scene, (radius, 0., face+1e-6), (radius, 0., face-1e-6), packed)
+
+
+def test_real_posed_objective_contacts_match_particles_without_nominal_liner_ghosts():
+    from temsim.optics.column import default_state
+    from temsim.physics.column_wall import clip_column_wall
+    from temsim.test_electron_scene import _physical_bores
+    state = default_state()
+    original = state._resolved_assembly
+    # The field request contains nominal copies of these same mechanical
+    # liners. Keep an unrelated joint to prove it is not discarded with them.
+    liner_rows = [dict(key=row.key, start_m=row.start_z_mm*1e-3,
+        stop_m=row.end_z_mm*1e-3, inner_m=row.inner_diameter_mm*.5e-3)
+        for row in original.vacuum_liner_segments]
+    liner_rows.append(dict(key="independent_joint", start_m=2.8, stop_m=2.81, inner_m=.001))
+    base = SimpleNamespace(request={"grounded_liner": liner_rows})
+    for sign in (-1., 1.):
+        state._resolved_assembly = replace(original, parts=tuple(
+            replace(part, data={**part.data, "offset_x_mm": sign*.5})
+            if part.key == "objective_lens" else part for part in original.parts))
+        captured = fixture_scene(bores=_physical_bores(state, SimpleNamespace(), base))
+        assert prepare_compiled_intercepts(captured) is None
+        assert any(bore.key == "independent_joint" for bore in captured._bores)
+        for x_mm, expected_alive in ((-sign*2.5, False), (sign*3.1, True)):
+            x = np.full((2, 1), x_mm*1e-3)
+            alive, stops, _ = clip_column_wall(state, [1620., 1621.], x, np.zeros_like(x))
+            hit = captured.diagnostic_segment_stop((x[0, 0], 0., 1.620), (x[1, 0], 0., 1.621))
+            assert bool(alive[0]) == expected_alive
+            assert (hit is None) == expected_alive
+            if hit is not None:
+                assert hit[1] == "hardware:column_wall"
+                assert 1620.+hit[0] == pytest.approx(stops[0])
+
+
+def test_posed_bore_keeps_fixed_tube_and_checks_tilted_slab_outside_nominal_z():
+    from temsim.physics.column_wall import clip_column_wall
+    from temsim.test_electron_scene import _physical_bores
+    from temsim.lens_pose import rotation_matrix_mrad
+    from temsim.physics.lens_field_provider import CoordinateRegistration
+    row = dict(key="lens", mechanical_profile="magnetic_lens_assembly",
+               local_center_z_mm=10., offset_x_mm=.5)
+    segments = (SimpleNamespace(key="lens", start_z_mm=0., end_z_mm=20., inner_diameter_mm=2.),
+                SimpleNamespace(key="fixed", start_z_mm=0., end_z_mm=20., inner_diameter_mm=1.5))
+    part = SimpleNamespace(key="lens", module_key="module", center_z_mm=10., data=row)
+    state = SimpleNamespace(_resolved_assembly=SimpleNamespace(parts=(part,), vacuum_bore_segments=segments))
+    scene = fixture_scene(bores=_physical_bores(state, SimpleNamespace(), SimpleNamespace()))
+    x = np.full((2, 1), .001)
+    alive, _, _ = clip_column_wall(state, [5., 6.], x, np.zeros_like(x))
+    assert not alive[0]
+    assert scene.diagnostic_segment_stop((.001, 0., .005), (.001, 0., .006)) == (0., "hardware:column_wall")
+    rotation = rotation_matrix_mrad((0., 100., 0.))
+    pivot = np.array((0., 0., .01))
+    registration = CoordinateRegistration(tuple(pivot-rotation@pivot), tuple(map(tuple, rotation)))
+    tilted = fixture_scene(bores=(_Bore("column_wall", 0., .02, .00025, registration=registration),))
+    hit = tilted.diagnostic_segment_stop((0., 0., .01), (0., 0., .02))
+    assert hit[0] == pytest.approx(.00025/np.sin(.1)/.01)
+    # This global-Z slab lies beyond the nominal end, but is inside the
+    # tilted local axial slab and outside its radial opening.
+    assert tilted.diagnostic_segment_stop((-.002, 0., .0201), (-.002, 0., .0202)) == (0., "hardware:column_wall")

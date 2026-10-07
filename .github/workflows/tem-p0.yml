@@ -59,7 +59,9 @@ jobs:
         # Collect independent scope evidence even when the installation fails.
         # Earlier failures still fail this job; no continue-on-error is used.
         if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
-        run: python scripts/validate_classical_scope.py --scope classical --output outputs/spec-acceptance --allow-gpu-skips
+        # The complete Windows scope took 892 s before process startup/exit.
+        # Keep a finite budget with runner headroom, matching feature scopes.
+        run: python scripts/validate_classical_scope.py --scope classical --output outputs/spec-acceptance --timeout-seconds 1800 --allow-gpu-skips
       - name: Retain validation records
         if: always()
         uses: actions/upload-artifact@v4
@@ -74,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scope: [acceptance-policy, gun-fields, electron-execution, field-ui, particle-continuation, performance-observation, coherent-development]
+        scope: [acceptance-policy, gun-fields, electron-execution, field-ui, lens-geometry, receiver-imaging, particle-continuation, performance-observation, coherent-development]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

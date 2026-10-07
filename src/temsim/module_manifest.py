@@ -673,6 +673,9 @@ def stage_manifest_text(text, updates, *, validate=True):
     from temsim.lens_pose import PHYSICAL_POSE_FIELDS
     optional_fields = set(OPTIONAL_NUMERICAL_FIELDS) | set(PHYSICAL_POSE_FIELDS)
     text = _stage_part_structure(text, updates)
+    from temsim.part_model_apertures import has_optional_plate_thickness
+    optional_plate_keys = {part["key"] for part in tomllib.loads(text).get("parts", ())
+                           if has_optional_plate_thickness(part)}
     lines = text.splitlines(keepends=True)
     newline = "\r\n" if "\r\n" in text else "\n"
     for path, value in updates.items():
@@ -691,7 +694,9 @@ def stage_manifest_text(text, updates, *, validate=True):
         try:
             first, last = _assignment_span(lines, start, end, field)
         except ValueError:
-            if len(path) == 3 and path[0] == "parts" and field in optional_fields:
+            if (len(path) == 3 and path[0] == "parts"
+                    and (field in optional_fields or
+                         (field == "plate_thickness_mm" and path[1] in optional_plate_keys))):
                 # Optional tip numerics and rigid lens placement are absent
                 # from older manifests. Insert directly in the owning part,
                 # before nested tables, preserving comments and neighbours.
@@ -723,6 +728,7 @@ def validate_document(document):
     from temsim.optics.electron_gun.tip_assembly import validate_tip_part, validate_electrical_defaults
     from temsim.magnetic_circuits import is_custom_mechanical_part
     from temsim.lens_pose import validate_physical_lens_pose
+    from temsim.part_model_apertures import validate_optional_plate_thickness
     document = dict(resolve_shared_deflector_parts(document))
     document["parts"] = [
         (
@@ -753,6 +759,7 @@ def validate_document(document):
     for part in parts:
         validate_tip_part(part)
         validate_physical_lens_pose(part)
+        validate_optional_plate_thickness(part)
         key = str(part["key"])
         start = float(part["local_start_z_mm"])
         center = float(part["local_center_z_mm"])

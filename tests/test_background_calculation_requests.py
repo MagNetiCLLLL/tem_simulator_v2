@@ -41,6 +41,7 @@ def test_prepared_request_matches_synchronous_identity_and_snapshot(state, quali
     expected = CalculationController._calculation_snapshot(state, quality, 49, 1.)
     signatures = calculation_signatures(expected)
     request = CapturedCalculationRequest.capture(state, quality, 49, 1.)
+    assert request._instrument_graph is None, "Ordinary previews must retain lightweight capture"
     result = request.prepare(Event())
     assert result.model_signature == model
     assert result.request_signatures == signatures

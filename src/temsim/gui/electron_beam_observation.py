@@ -276,12 +276,14 @@ class ElectronBeamObservation(QWidget):
             self.diagnostics.plot.clear()
             self.note.setText("This result has no retained complex modes for diagnostic observation.")
             return
-        identity = id(result.checkpoint)
+        gauge = getattr(self.preview, "magnetic_gauge", None)
+        axial_bz = getattr(self.preview, "axial_bz_t", None)
+        identity = (id(result.checkpoint), None if gauge is None else gauge.fingerprint, axial_bz)
         if identity != self._diagnostic_identity:
             # All listed states share installed optics and exact Z. Their
             # fields remain individual; an overlay is never given one phase.
             self.diagnostics.display_wave_checkpoint(result.checkpoint,
-                axial_bz_t=getattr(self.preview, "axial_bz_t", None))
+                axial_bz_t=axial_bz, magnetic_gauge=gauge)
             self._diagnostic_identity = identity
             self.diagnostics.set_projection_angle(self._projection_angle_deg)
         combo = self.diagnostics.analysis.mode_combo

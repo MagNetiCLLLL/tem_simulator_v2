@@ -237,6 +237,8 @@ def _vector_reference(inputs, z, electric, energy, optical_invariant, initial_ti
         tx,ty=tx+kickx[j],ty+kicky[j]
         radial=cs[j]*(x*x+y*y);tx,ty=tx-radial*x,ty-radial*y
         for kick in (posed_spherical_kicks or {}).get(j, ()):
+            # Preserve the existing geometric ray screen. Its coherent
+            # small-inclination approximation has separate phase-domain gates.
             x,tx,y,ty=kick.apply(x,tx,y,ty)
         phi,_=sample(x,y,z[j]); actual_energy=invariant+phi
         if saved<len(save) and j==save[saved]:

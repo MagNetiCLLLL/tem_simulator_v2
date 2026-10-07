@@ -441,7 +441,7 @@ def _dynamic_column_coils(state, source_z_mm, target_z_mm):
     from temsim.physics.instrument_magnetic import column_dipole_fields
     return tuple(coil for coil in column_dipole_fields(state)
         if coil.dynamic
-        and coil.lower_m < target_z_mm*1e-3 and coil.upper_m > source_z_mm*1e-3)
+        and coil.field_support_mm[0] < target_z_mm and coil.field_support_mm[1] > source_z_mm)
 
 
 def _scan_deflection_offsets(state, source, planes, times, maximum_step_mm,
@@ -481,15 +481,18 @@ def _scan_deflection_offsets(state, source, planes, times, maximum_step_mm,
     targets = tuple(float(plane.z_mm) for plane in planes)
     offsets = [np.zeros(times.shape + (2,)) for _ in planes]
     zero = np.zeros(1)
+    from temsim.physics.posed_column_fields import capture_posed_column_fields
+    placed = any(field.field_support_mm[0] <= targets[-1] and field.field_support_mm[1] >= source
+                 for field in capture_posed_column_fields(state))
     plan = build_propagation_plan(state, source, targets[-1], active_column_events(state),
-        include_spherical_aberration=False, include_hexapole=False,
+        include_spherical_aberration=False, include_hexapole=placed,
         checkpoint_z_mm=targets, maximum_step_mm=maximum_step_mm)
-    if active_vector_providers(state) or active_electric_field(plan) is not None:
+    if plan.mapped_fields or active_vector_providers(state) or active_electric_field(plan) is not None:
         positions = []
         for working in timed_states:
             plan = build_propagation_plan(working, source, targets[-1],
                 active_column_events(working), include_spherical_aberration=False,
-                include_hexapole=False, checkpoint_z_mm=targets,
+                include_hexapole=placed, checkpoint_z_mm=targets,
                 maximum_step_mm=maximum_step_mm)
             points = execute_propagation_plan(working, plan, zero, zero, zero, zero)[-1]
             indices = np.searchsorted(points.z_mm, targets)

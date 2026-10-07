@@ -172,6 +172,55 @@ def _canonical_source_basis(larmor_rate_m1: float) -> np.ndarray:
     return basis
 
 
+def _posed_field_overlaps(field, source_z_mm, target_z_mm):
+    low, high = field.field_support_mm
+    return bool(field.scale) and float(low) <= target_z_mm and float(high) >= source_z_mm
+
+
+def canonical_source_basis(state, source_z_mm, *, momentum_kg_m_s=None,
+                           electric_field=None, position_xy_m=(0., 0.),
+                           vector_providers=None, posed_fields=None):
+    """Map local canonical increments to mechanical increments at one chief.
+
+    For an electron, theta_mechanical = u_canonical + e*A_xy/p; the lower
+    left block is therefore e/p * d(A_xy)/d(x,y). Analytic placed fields use
+    precisely the wave solver's rotated gauge. The constant A at the chief
+    does not shift the already traced mechanical chief: the map describes
+    increments about that same reference orbit, not absolute canonical u=0.
+
+    Historical imported maps without a vector potential retain the existing
+    on-axis Bz/2 local gauge approximation. That case is not a wave-compatible
+    global gauge. This is a paraxial differential conversion, not a nonlinear
+    finite-amplitude transfer. At hard field-support edges use a one-sided
+    source plane; the discontinuous model has no two-sided derivative there.
+    """
+    from temsim.physics.lens_field_provider import MappedLensFieldProvider, freeze_vector_provider
+    from temsim.physics.posed_column_fields import capture_posed_column_fields
+    from temsim.physics.posed_lens_wave import vector_potential_jet
+    source = float(source_z_mm)
+    position = np.asarray(position_xy_m, dtype=float)
+    if not math.isfinite(source) or position.shape != (2,) or not np.isfinite(position).all():
+        raise ValueError("Canonical source basis requires a finite plane and chief XY position")
+    momentum = (_column_reference_momentum(state, source, electric_field)
+                if momentum_kg_m_s is None else float(momentum_kg_m_s))
+    if not math.isfinite(momentum) or momentum <= 0:
+        raise ValueError("Canonical source basis needs positive finite mechanical momentum")
+    providers = active_vector_providers(state) if vector_providers is None else tuple(vector_providers)
+    analytic = tuple(provider for provider in providers if not isinstance(provider, MappedLensFieldProvider))
+    excluded = tuple(provider.lens_key for provider in analytic)
+    field_options = {"exclude_mapped_keys": excluded} if excluded else {}
+    aligned_b = float(fields(np.array((source,)), state, **field_options)[0][0])
+    basis = _canonical_source_basis(-E*aligned_b/(2*momentum))
+    posed = (capture_posed_column_fields(state, include_hexapole=not is_ideal(state))
+             if posed_fields is None else tuple(posed_fields))
+    captured = tuple(freeze_vector_provider(provider) for provider in analytic) + tuple(
+        field for field in posed if _posed_field_overlaps(field, source, source))
+    if captured:
+        _, gradient, _ = vector_potential_jet(captured, (*position, source*1e-3))
+        basis[2:, :2] += (E/momentum)*gradient[:2, :2]
+    return basis
+
+
 def _active_column_electric_field(state, source_z_mm, target_z_mm):
     """Admit the reduced optimiser only with a provider-proven constant E."""
     if getattr(state, "electron_gun", None) is None:
@@ -243,12 +292,17 @@ def canonical_transfers(
         return {}
     target = targets[-1]
     electric_field = _active_column_electric_field(state, source, target)
+    vector_providers = active_vector_providers(state)
+    from temsim.physics.posed_column_fields import capture_posed_column_fields
+    posed_fields = capture_posed_column_fields(state, include_hexapole=not is_ideal(state))
+    relevant_posed = tuple(field for field in posed_fields if _posed_field_overlaps(field, source, target))
 
-    def canonical_from_mechanical(source_g, requested_targets):
+    def canonical_from_mechanical(requested_targets):
         raw_maps = trace_transverse_transfers(
             state, source, requested_targets, maximum_step_mm=0.025,
         )
-        basis = _canonical_source_basis(source_g)
+        basis = canonical_source_basis(state, source, electric_field=electric_field,
+                                       vector_providers=vector_providers, posed_fields=posed_fields)
         result = {}
         for z, raw in raw_maps.items():
             matrix = raw.matrix @ basis
@@ -262,19 +316,16 @@ def canonical_transfers(
             )
         return result
 
-    if (not stable_axisymmetric or active_vector_providers(state)
+    if (not stable_axisymmetric or vector_providers or relevant_posed
             or electric_field is not None or target == source):
-        source_b = float(fields(np.asarray((source,)), state)[0][0])
-        momentum = _column_reference_momentum(state, source, electric_field)
         # A field encountered only after an earlier target must not switch that
         # target away from the solver used for an individual selected-Z query.
         prefix = []
-        if stable_axisymmetric and not active_vector_providers(state) and electric_field is not None:
-            prefix = [z for z in targets if electric_field.is_constant_on_interval(source, z)]
-        result = canonical_from_mechanical(
-            -E * source_b / (2.0 * momentum),
-            [z for z in targets if z not in prefix],
-        )
+        if stable_axisymmetric and not vector_providers and target > source:
+            prefix = [z for z in targets
+                      if (electric_field is None or electric_field.is_constant_on_interval(source, z))
+                      and not any(_posed_field_overlaps(field, source, z) for field in relevant_posed)]
+        result = canonical_from_mechanical([z for z in targets if z not in prefix])
         if prefix:
             result.update(canonical_transfers(state, source, prefix, input_basis=input_basis))
         return result
@@ -283,14 +334,16 @@ def canonical_transfers(
     step_mm = min(max(float(state.step_mm), 1.0e-6), 0.025)
     z_mm = _piecewise_endpoint_exact_grid(source, target, step_mm, targets)
     stage_z_mm = interleaved_rk4_values(z_mm, 0.5 * (z_mm[:-1] + z_mm[1:]))
-    magnetic_t, sx_m2, sy_m2 = fields(stage_z_mm, state)
+    posed_keys = tuple({field.component_key for field in posed_fields})
+    field_options = {"exclude_mapped_keys": posed_keys} if posed_keys else {}
+    magnetic_t, sx_m2, sy_m2 = fields(stage_z_mm, state, **field_options)
     momentum = _electron_momentum_kg_m_s(state.beam_voltage_kv)
     g = np.ascontiguousarray(-E * magnetic_t / (2.0 * momentum))
     gun_bx, gun_by, *_ = gun_paraxial_fields(state, stage_z_mm)
     indices = np.asarray(np.searchsorted(z_mm, targets), dtype=np.int64)
     non_axisymmetric = np.logical_or.accumulate(
         (np.abs(sx_m2) > 1.0e-15) | (np.abs(sy_m2) > 1.0e-15)
-        | (skew_quadrupole_field(stage_z_mm, state) != 0.)
+        | (skew_quadrupole_field(stage_z_mm, state, **field_options) != 0.)
         | (gun_bx != 0.) | (gun_by != 0.)
     )
     dipoles = column_dipole_fields(state)
@@ -298,11 +351,11 @@ def canonical_transfers(
         z for z, index in zip(targets, indices)
         if non_axisymmetric[2 * index]
         or any((coil.bx_t != 0. or coil.by_t != 0.)
-               and coil.lower_m < z*1e-3 and coil.upper_m > source*1e-3
+               and coil.field_support_mm[0] < z and coil.field_support_mm[1] > source
                for coil in dipoles)
     ]
     if general_targets:
-        result = canonical_from_mechanical(g[0], general_targets)
+        result = canonical_from_mechanical(general_targets)
         prefix = [z for z in targets if z not in general_targets]
         if prefix:
             result.update(canonical_transfers(state, source, prefix, input_basis=input_basis))
@@ -592,7 +645,12 @@ class _LiveFirstOrderModel:
         self.state = state
         self.variable_keys = tuple(variable_keys)
         self._electric_field = _active_column_electric_field(state, source_z_mm, target_z_mm)
-        self.full_field_transfer = bool(active_vector_providers(state) or self._electric_field is not None)
+        from temsim.physics.posed_column_fields import capture_posed_column_fields
+        posed = capture_posed_column_fields(state, include_hexapole=not is_ideal(state))
+        self._posed_field_options = ({"exclude_mapped_keys": tuple({field.component_key for field in posed})}
+                                     if posed else {})
+        self.full_field_transfer = bool(active_vector_providers(state) or self._electric_field is not None
+            or any(_posed_field_overlaps(field, source_z_mm, target_z_mm) for field in posed))
         self.maximum_step_mm = float(step_mm)
         self.z_mm = _piecewise_endpoint_exact_grid(
             source_z_mm, target_z_mm, step_mm, capture_z_mm
@@ -604,7 +662,7 @@ class _LiveFirstOrderModel:
         # The reduced analytic optimiser has no skew term. Use the existing
         # complete Jacobian tracer whenever any captured quadrupole couples XY.
         self.full_field_transfer = self.full_field_transfer or bool(
-            np.any(skew_quadrupole_field(self.stage_z_mm, state) != 0.))
+            np.any(skew_quadrupole_field(self.stage_z_mm, state, **self._posed_field_options) != 0.))
         lenses = _lens_map(state)
         try:
             self.lenses = tuple(lenses[key] for key in self.variable_keys)
@@ -631,11 +689,11 @@ class _LiveFirstOrderModel:
         try:
             for lens in self.lenses:
                 lens.percent = 0.0
-            fixed_b, sx, sy = fields(self.stage_z_mm, state)
+            fixed_b, sx, sy = fields(self.stage_z_mm, state, **self._posed_field_options)
             profiles = []
             for lens, maximum in zip(self.lenses, self.upper):
                 lens.percent = float(maximum)
-                maximum_b = fields(self.stage_z_mm, state)[0]
+                maximum_b = fields(self.stage_z_mm, state, **self._posed_field_options)[0]
                 profiles.append(
                     (maximum_b - fixed_b) * (100.0 / float(maximum))
                 )
@@ -741,9 +799,8 @@ class _LiveFirstOrderModel:
         if self.full_field_transfer:
             matrix = self.matrix(vector)
             with self._mapped_candidate(vector):
-                source_b = fields((self.z_mm[0],), self.state)[0][0]
-            momentum = _column_reference_momentum(self.state, self.z_mm[0], self._electric_field)
-            canonical = matrix @ _canonical_source_basis(-E*source_b/(2*momentum))
+                basis = canonical_source_basis(self.state, self.z_mm[0], electric_field=self._electric_field)
+            canonical = matrix @ basis
             return canonical[:2, :2], canonical[:2, 2:]
         g = self._field_arrays(vector)
         matrix = self.matrix(vector)

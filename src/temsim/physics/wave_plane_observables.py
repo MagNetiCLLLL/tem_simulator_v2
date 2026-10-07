@@ -5,7 +5,8 @@ direction is not an individually measured electron trajectory. Canonical
 angular spectra are gauge-labelled; in a magnetic field they are not a
 joint distribution of the noncommuting kinetic momentum components.
 """
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
+from collections.abc import Mapping
 import math
 
 import numpy as np
@@ -19,6 +20,132 @@ from temsim.physics.wave_execution import check_available_memory
 def _freeze(value):
     value = np.ascontiguousarray(value)
     return np.frombuffer(value.tobytes(), dtype=value.dtype).reshape(value.shape)
+
+
+@dataclass(frozen=True)
+class ColumnPlaneMagneticGauge:
+    """Immutable installed magnetic gauge at one executed global Z plane.
+
+    Fields carry their captured excitation and rigid registration. No readout
+    calls back into live instrument controls. The aligned term excludes these
+    vector providers, so displaced lenses are not counted twice.
+    """
+    plane_z_mm: float
+    aligned_bz_t: float
+    fields: tuple = ()
+
+    def __post_init__(self):
+        from temsim.physics.posed_lens_wave import require_analytic_fields
+        if (isinstance(self.plane_z_mm, bool) or isinstance(self.aligned_bz_t, bool)
+                or not math.isfinite(self.plane_z_mm) or not math.isfinite(self.aligned_bz_t)):
+            raise ValueError("Column magnetic gauge requires finite physical Z and aligned field")
+        object.__setattr__(self, "plane_z_mm", float(self.plane_z_mm))
+        object.__setattr__(self, "aligned_bz_t", float(self.aligned_bz_t))
+        object.__setattr__(self, "fields", require_analytic_fields(self.fields))
+
+    @property
+    def fingerprint(self):
+        from temsim.immutable_json import json_digest
+        return json_digest(("column-plane-magnetic-gauge-v1", asdict(self)))
+
+    def require_plane(self, plane_z_mm):
+        if (isinstance(plane_z_mm, bool) or plane_z_mm is None or not math.isfinite(plane_z_mm)
+                or not math.isclose(self.plane_z_mm, plane_z_mm, rel_tol=0., abs_tol=1e-9)):
+            raise ValueError("Probability flow requires the captured magnetic gauge at the exact observation plane")
+
+    def vector_potential_xy_t_m(self, coordinates_m):
+        """Evaluate the actual rotated analytical gauge, never an on-axis B fit."""
+        xy = np.asarray(coordinates_m, float)
+        if xy.ndim < 2 or xy.shape[0] != 2 or not np.isfinite(xy).all():
+            raise ValueError("Magnetic gauge coordinates must be finite global XY arrays")
+        potential = .5*self.aligned_bz_t*np.stack((-xy[1], xy[0]))
+        for field in self.fields:
+            evaluate = getattr(field, "vector_potential_at_global_positions_t_m", None)
+            if evaluate is not None:
+                xyz = np.moveaxis(np.stack((xy[0], xy[1],
+                    np.full_like(xy[0], self.plane_z_mm*1e-3))), 0, -1)
+                potential += np.moveaxis(evaluate(xyz)[..., :2], -1, 0)
+                continue
+            rotation = field.registration.rotation_array
+            origin = field.registration.origin_array_m
+            x, y = xy[0]-origin[0], xy[1]-origin[1]
+            z = self.plane_z_mm*1e-3-origin[2]
+            local_x = rotation[0, 0]*x+rotation[1, 0]*y+rotation[2, 0]*z
+            local_y = rotation[0, 1]*x+rotation[1, 1]*y+rotation[2, 1]*z
+            local_z = rotation[0, 2]*x+rotation[1, 2]*y+rotation[2, 2]*z
+            axial = np.zeros_like(local_z)
+            for amplitude, centre, sigma in field.terms_t_m:
+                axial += amplitude*np.exp(-.5*((local_z-centre)/sigma)**2)
+            local_ax, local_ay = -.5*local_y*axial, .5*local_x*axial
+            for axis in range(2):
+                potential[axis] += rotation[axis, 0]*local_ax+rotation[axis, 1]*local_ay
+        return potential
+
+
+def capture_column_plane_magnetic_gauge(state, plane_z_mm):
+    """Freeze the worker's executed optical state, never the live GUI state."""
+    from temsim.input_io import input_scope
+    from temsim.physics.core import fields
+    from temsim.physics.lens_field_provider import (
+        MappedLensFieldProvider, active_vector_providers, freeze_vector_provider,
+    )
+    with input_scope(state, inherit=False):
+        providers = active_vector_providers(state)
+        keys = tuple(provider.lens_key for provider in providers)
+        # A finite imported map outside this observation plane does not make
+        # an upstream readout unsupported. Keep every vector key excluded from
+        # the aligned reduction, even when its map is not sampled here.
+        # Native analytical gauges retain their Gaussian tails; applying this
+        # finite-map test to them would invent a new exact-Z field truncation.
+        posed = tuple(freeze_vector_provider(provider) for provider in providers
+                      if not isinstance(provider, MappedLensFieldProvider)
+                      or provider.field_support_mm()[0] <= plane_z_mm <= provider.field_support_mm()[1])
+        aligned = float(fields(np.array((plane_z_mm,)), state, exclude_mapped_keys=keys)[0][0])
+        from temsim.physics.posed_column_fields import capture_posed_column_fields
+        from temsim.simulation_modes import is_ideal
+        posed += tuple(field for field in capture_posed_column_fields(state, include_hexapole=not is_ideal(state))
+                       if field.field_support_mm[0] <= plane_z_mm <= field.field_support_mm[1])
+    return ColumnPlaneMagneticGauge(plane_z_mm, aligned, posed)
+
+
+def checkpoint_magnetic_gauge(gauge, checkpoint):
+    """Bind posed drives to the values actually used by the executed modes.
+
+    A driven coil is frozen at each mode's arrival time during propagation,
+    which can differ from the instrument's snapshot time. A single common
+    current readout is unavailable when those modes require different gauges;
+    their intensity and phase readouts remain available. Never recalculate a
+    drive from live controls to fill missing execution metadata.
+    """
+    from temsim.physics.lens_field_provider import CoordinateRegistration
+    from temsim.physics.posed_column_fields import FrozenPosedMultipole
+    if gauge is None:
+        return None
+    gauge.require_plane(checkpoint.plane_z_mm)
+    captured = tuple(field for field in gauge.fields if isinstance(field, FrozenPosedMultipole))
+    if not captured:
+        return gauge
+    record = checkpoint.record
+    while isinstance(record, Mapping):
+        rows = record.get("modes", ())
+        if rows and all(isinstance(row, Mapping) and "posed_column_fields" in row for row in rows):
+            alternatives = []
+            for row in rows:
+                fields = tuple(FrozenPosedMultipole(**{**dict(value),
+                    "registration": CoordinateRegistration(**value["registration"])})
+                    for value in row["posed_column_fields"])
+                fields = tuple(field for field in fields
+                    if field.field_support_mm[0] <= checkpoint.plane_z_mm <= field.field_support_mm[1])
+                if {field.lens_key for field in fields} != {field.lens_key for field in captured}:
+                    return None
+                alternatives.append(tuple(sorted(fields, key=lambda field: field.lens_key)))
+            if any(tuple(field.fingerprint for field in fields) !=
+                   tuple(field.fingerprint for field in alternatives[0]) for fields in alternatives[1:]):
+                return None
+            return replace(gauge, fields=tuple(field for field in gauge.fields
+                if not isinstance(field, FrozenPosedMultipole))+alternatives[0])
+        record = record.get("upstream")
+    return None if any(field.dynamic for field in captured) else gauge
 
 
 def mode_phase_samples(mode, *, maximum_working_bytes=512*1024**2):
@@ -68,7 +195,8 @@ class ColumnModeObservables:
     gauge: str = "A=(-Bz*y/2, Bz*x/2, 0), laboratory SI; forward paraxial column state"
 
 
-def column_mode_observables(mode, *, reference_current_a, axial_bz_t,
+def column_mode_observables(mode, *, reference_current_a, axial_bz_t=None,
+                            magnetic_gauge=None, plane_z_mm=None,
                             maximum_working_bytes=512*1024**2):
     """Full envelope-gradient plus analytical carrier and magnetic current.
 
@@ -77,7 +205,13 @@ def column_mode_observables(mode, *, reference_current_a, axial_bz_t,
     radial_mode_observables. Reference current remains the physical tip's.
     """
     if (isinstance(reference_current_a, bool) or not math.isfinite(reference_current_a)
-            or reference_current_a < 0 or isinstance(axial_bz_t, bool) or not math.isfinite(axial_bz_t)):
+            or reference_current_a < 0):
+        raise ValueError("Wave diagnostics need a finite tip current and actual axial field")
+    if magnetic_gauge is not None:
+        if not isinstance(magnetic_gauge, ColumnPlaneMagneticGauge):
+            raise ValueError("Probability flow needs an immutable captured magnetic gauge")
+        magnetic_gauge.require_plane(plane_z_mm)
+    elif (axial_bz_t is None or isinstance(axial_bz_t, bool) or not math.isfinite(axial_bz_t)):
         raise ValueError("Wave diagnostics need a finite tip current and actual axial field")
     if mode.reference_plane != TIP_REFERENCE:
         raise ValueError("Tip-referenced diagnostics require the executed tip-origin mode")
@@ -99,7 +233,10 @@ def column_mode_observables(mode, *, reference_current_a, axial_bz_t,
     tilt = np.zeros(2) if wave.tilt_rad is None else wave.tilt_rad
     carrier_gradient = np.einsum("ij,jyx->iyx", curvature, delta)+tilt[:, None, None]
     momentum, _ = _momentum_velocity(mode.energy_kev*1000)
-    vector_potential = .5*axial_bz_t*np.stack((-xy[1], xy[0]))
+    # The complete captured gauge is authoritative. axial_bz_t remains an
+    # aligned-only compatibility input, never an additional field contribution.
+    vector_potential = (magnetic_gauge.vector_potential_xy_t_m(xy) if magnetic_gauge is not None
+                        else .5*axial_bz_t*np.stack((-xy[1], xy[0])))
     # p_kinetic = p_canonical - q*A, q=-e for an electron.
     momentum_wave += (carrier_gradient+e*vector_potential/momentum)*wave.amplitude
     area = abs(float(np.linalg.det(wave.basis_m)))
@@ -113,7 +250,9 @@ def column_mode_observables(mode, *, reference_current_a, axial_bz_t,
     phase = np.where(probability > 0, np.angle(wave.amplitude*np.exp(1j*carrier)), np.nan)
     return ColumnModeObservables(mode.mode_id, mode.energy_kev,
         *map(_freeze, (xy, probability, axial, transverse, phase)),
-        float(reference_current_a*probability.sum()), mode.axial_reference, mode.scattering_history)
+        float(reference_current_a*probability.sum()), mode.axial_reference, mode.scattering_history,
+        **({"gauge": "Captured sum of aligned symmetric and rigid analytical vector potentials, laboratory SI; forward paraxial column state"}
+           if magnetic_gauge is not None else {}))
 
 
 def canonical_angular_spectrum(mode, *, maximum_working_bytes=512*1024**2):

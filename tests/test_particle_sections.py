@@ -90,6 +90,15 @@ def test_drift_section_has_exact_phase_and_original_clock(fixture):
     assert result.metrics["section_beam_surviving_rays"] == 3
 
 
+def test_tuning_a_posed_aperture_does_not_reuse_its_unproved_native_prefix(fixture):
+    state, _, _ = fixture
+    key = "objective_aperture"
+    state._resolved_assembly = replace(state._resolved_assembly, parts=tuple(
+        replace(part, data={**part.data, "rotation_y_mrad": 1.})
+        if part.key == key else part for part in state._resolved_assembly.parts))
+    assert sections._selection_boundary(state, (key,)) == state.electron_gun.exit_plane_z_mm
+
+
 def test_extension_uses_saved_endpoint_and_reselection_can_move_upstream(fixture):
     state, _, calls = fixture
     first = trace(state, 452.25)
@@ -235,6 +244,40 @@ def test_spherical_kick_never_leaks_from_outside_section(fixture, monkeypatch):
     for grid in (np.array([lens.z_mm-.01]), np.array([lens.z_mm-1.,lens.z_mm-.01])):
         np.testing.assert_array_equal(core.spherical_aberration_kick_m3(grid,state), np.zeros(len(grid)))
     assert core.spherical_aberration_kick_m3(np.array([lens.z_mm]),state)[0] > 0
+
+
+def test_section_prefix_compares_posed_cs_events_by_axial_plane(fixture):
+    from temsim.physics.lens_field_provider import CoordinateRegistration
+    from temsim.physics.posed_aberrations import FrozenLensAberrationKick
+    state, _, _ = fixture
+    plan = sections.build_propagation_plan(state, 450., 454.)
+    early = FrozenLensAberrationKick("early", .4515, 1., CoordinateRegistration())
+    later = FrozenLensAberrationKick("later", .453, 1., CoordinateRegistration())
+    original = replace(plan, posed_spherical_kicks=(early, later))
+    index = int(np.flatnonzero(plan.z_mm == 452.)[0])
+    # Changing a downstream action cannot alter this executed checkpoint.
+    changed = replace(original, posed_spherical_kicks=(early, replace(later, strength_m3=2.)))
+    assert sections._prefix_matches(original, changed, index, index)
+    # Removing, changing or moving an action onto the checkpoint invalidates it.
+    for kicks in ((later,), (replace(early, strength_m3=2.), later),
+                  (early, replace(later, local_z_m=.452))):
+        assert not sections._prefix_matches(original, replace(original, posed_spherical_kicks=kicks), index, index)
+
+
+def test_section_prefix_checks_all_coincident_posed_cs_actions(fixture):
+    from temsim.physics.lens_field_provider import CoordinateRegistration
+    from temsim.physics.posed_aberrations import FrozenLensAberrationKick
+    state, _, _ = fixture
+    plan = sections.build_propagation_plan(state, 450., 451.)
+    first = FrozenLensAberrationKick("first", .45, 1., CoordinateRegistration())
+    second = FrozenLensAberrationKick("second", .45, 2., CoordinateRegistration())
+    original = replace(plan, posed_spherical_kicks=(first, second))
+    # There are two actions at node zero: slicing the event tuple by node
+    # count would miss a change to the second one.
+    changed = replace(original, posed_spherical_kicks=(first, replace(second, strength_m3=3.)))
+    assert not sections._prefix_matches(original, changed, 0, 0)
+    reordered = replace(original, posed_spherical_kicks=(second, first))
+    assert not sections._prefix_matches(original, reordered, 0, 0)
 
 
 def test_vacuum_participation_reexecutes_transport_instead_of_resetting_rng(fixture):

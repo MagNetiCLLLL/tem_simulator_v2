@@ -102,6 +102,27 @@ def test_common_input_gauge_cancels_but_selected_gauge_is_restored():
     assert [c.z_mm for c in observed] == pytest.approx([c.z_mm for c in expected], abs=1e-5)
 
 
+def test_full_source_gauge_gradient_is_retained_when_rebasing_between_cached_nodes():
+    plain = _thin_atlas(((20., 10., 10.),), stop=60.)
+    common_basis = np.eye(4)
+    common_basis[2:, :2] = ((.3, 20.), (-19., -.2))
+    c0 = np.array(((1.2, 8.), (-11., -.7)))
+    derivative = np.array(((.01, .03), (.02, -.01)))
+    source_c = c0+plain.z_mm[:, None, None]*derivative
+    gauged = cp.ConjugateAtlas(plain.z_mm, plain.matrices@common_basis, source_c_m1=source_c)
+    ref, target = 3.123, 48.
+    selected_basis = np.eye(4)
+    selected_basis[2:, :2] = c0+ref*derivative
+    expected = plain.transfer_matrix(ref, target)@selected_basis
+    np.testing.assert_allclose(gauged.transfer_matrix(ref, target), expected, atol=1e-11)
+    assert gauged.source_c_m1[0, 0, 0] != 0.  # Cannot be represented by scalar Bz/2.
+    with pytest.raises(ValueError):
+        gauged.source_c_m1[0, 0, 0] = 0.
+    expected_images = _images(cp.find_conjugate_planes(plain, ref))
+    observed_images = _images(cp.find_conjugate_planes(gauged, ref))
+    assert [c.z_mm for c in observed_images] == pytest.approx([c.z_mm for c in expected_images], abs=1e-5)
+
+
 def _oscillator_atlas(step, omega=50., stop=150.):
     z = np.arange(0., stop+step/2, step)
     maps = []

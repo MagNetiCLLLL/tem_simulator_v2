@@ -78,6 +78,18 @@ def test_wave_compute_policy_and_device_budget_are_validated_and_identified():
             WaveGridNumerics(maximum_device_working_bytes=value).validate()
 
 
+@pytest.mark.parametrize("field", ["maximum_posed_lens_phase_error_rad_per_m",
+                                   "maximum_spherical_obliquity_phase_error_rad"])
+def test_posed_lens_phase_budget_is_validated_and_invalidates_column_cache(field):
+    original = WaveGridNumerics()
+    assert original.column_identity()[field] == .01
+    changed = replace(original, **{field: .001})
+    assert changed.column_identity() != original.column_identity()
+    for value in (True, 0., -1., np.nan, np.inf):
+        with pytest.raises(ValueError, match="phase error budget"):
+            replace(original, **{field: value}).validate()
+
+
 def gaussian(n):
     axis = (np.arange(n)-n//2)*(128/n)*4e-9
     xx, yy = np.meshgrid(axis, axis)
@@ -148,3 +160,10 @@ def test_resolved_wave_zero_does_not_masquerade_as_aliasing():
     result = apply_multipole_phase(vortex, 2e-12, spherical_m3=4e14)
     expected = a*np.exp(2j*np.pi*multipole_action(x, y, spherical_m3=4e14)/2e-12)
     np.testing.assert_allclose(result.amplitude, expected, atol=1e-15)
+
+
+def test_operator_specific_memory_estimate_respects_existing_budget():
+    numerics = WaveGridNumerics(maximum_working_bytes=400*64*64)
+    assert numerics.check((64, 64)) == 256*64*64
+    with pytest.raises(ValueError, match="budget exceeded"):
+        numerics.check((64, 64), working_bytes_per_pixel=512)

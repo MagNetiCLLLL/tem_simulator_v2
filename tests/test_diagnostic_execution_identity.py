@@ -48,6 +48,19 @@ def test_consumed_field_stop_and_support_changes_invalidate_transport_context(mu
     assert transport_context_identity(changed) != original.transport_identity
 
 
+def test_hardware_pose_changes_identity_without_a_magnetic_field_change():
+    from temsim.physics.lens_field_provider import CoordinateRegistration
+    original = scene()
+    registration = CoordinateRegistration((.0005, 0., 0.))
+    changed = deepcopy(original)
+    changed._bores = (replace(changed._bores[0], registration=registration),)
+    assert changed.numerical_identity == original.numerical_identity
+    assert transport_context_identity(changed) != original.transport_identity
+    changed = deepcopy(original)
+    changed._aperture_registrations = (registration,)
+    assert transport_context_identity(changed) != original.transport_identity
+
+
 def test_unknown_fields_or_custom_aperture_laws_do_not_gain_reproducible_identity():
     original = scene()
     original.numerical_identity = None
@@ -72,6 +85,27 @@ def test_every_initial_state_and_integration_control_changes_execution_identity(
     original = scene()
     settings = TestElectronSettings()
     assert trajectory_execution_identity(original, settings) != trajectory_execution_identity(original, replace(settings, **change))
+
+
+@pytest.mark.parametrize("module_name", ["posed_aberrations.py", "posed_aberration_wave.py", "vector_field_transport.py",
+                                        "ray_integrator.py", "lens_field_provider.py"])
+def test_column_operator_source_changes_invalidate_execution_identity(monkeypatch, tmp_path, module_name):
+    from temsim import diagnostic_execution_identity as identity
+    # Mirror the implementation inventory in a detached directory so no
+    # production source changes while its cache invalidation is exercised.
+    for name in identity._IMPLEMENTATION_FILES:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# unchanged fixture implementation\n", encoding="utf-8")
+    monkeypatch.setattr(identity, "__file__", str(tmp_path / "diagnostic_execution_identity.py"))
+    identity._implementation_hash.cache_clear()
+    original = scene()
+    settings = TestElectronSettings()
+    before = trajectory_execution_identity(original, settings)
+    (tmp_path / "physics" / module_name).write_text("# changed implementation with distinct size\n", encoding="utf-8")
+    after = trajectory_execution_identity(original, settings)
+    assert after != before
+    identity._implementation_hash.cache_clear()
 
 
 def test_worker_tokens_and_display_names_do_not_replace_physical_identity():

@@ -145,3 +145,29 @@ def test_axial_column_path_agrees_with_physical_displacement(column):
     # reconstruction in a purely axial, accelerating prescribed field.
     displacement = result.positions_m[-1, 2]-result.positions_m[0, 2]
     assert displacement == pytest.approx(result.path_length_m[-1], abs=1e-10)
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+def test_virtual_column_uses_posed_hardware_even_when_compiled_requested(column, compiled):
+    from temsim.test_electron_scene import _physical_bores
+    from temsim.instrument_snapshot import encode_instrument
+    from temsim.physics.column_wall import clip_column_wall
+    from types import SimpleNamespace
+    state, scene = column
+    assembly = state._resolved_assembly
+    state._resolved_assembly = replace(assembly, parts=tuple(
+        replace(part, data={**part.data, "offset_x_mm": .5})
+        if part.key == "objective_lens" else part for part in assembly.parts))
+    bounds = scene.diagnostic_bounds_m.copy()
+    bounds[1, 2] = 1.621
+    scene = replace(scene, _column_input_graph=encode_instrument(state), diagnostic_bounds_m=bounds,
+                    magnetic_scene=scene.magnetic_scene.with_diagnostic_bounds(bounds),
+                    _bores=_physical_bores(state, state.electron_gun, SimpleNamespace(request={})))
+    settings = TestElectronSettings(position_m=(-.0025, 0., 1.620), kinetic_energy_ev=200000.,
+        max_path_length_m=.01, step_m=.00025, max_steps=100)
+    result = trace_test_electron(scene, settings, use_compiled=compiled)
+    alive, stops, _ = clip_column_wall(state, [1620., 1621.],
+        np.full((2, 1), -.0025), np.zeros((2, 1)))
+    assert not alive[0]
+    assert result.completed and result.reason == "hardware:column_wall"
+    assert result.positions_m[-1, 2]*1e3 == pytest.approx(stops[0])

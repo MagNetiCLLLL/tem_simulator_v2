@@ -69,6 +69,8 @@ def vector_map_rk4(
         radial = cs_kick[j] * (x*x + y*y)
         tx, ty = tx - radial*x, ty - radial*y
         for kick in (posed_spherical_kicks or {}).get(j, ()):
+            # Preserve the geometric ray screen rather than applying the
+            # coherent approximation's phase-domain gates to a particle bundle.
             x, tx, y, ty = kick.apply(x, tx, y, ty)
         if saved < ns and j == save_index[saved]:
             X[saved], TX[saved], Y[saved], TY[saved] = x, tx, y, ty

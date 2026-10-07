@@ -21,7 +21,7 @@ import numpy as np
 
 from temsim.physics.core import propagate
 
-FIRST_ORDER_RESPONSE_SCHEMA = "captured-field-affine-canonical-diagnostics-v4"
+FIRST_ORDER_RESPONSE_SCHEMA = "captured-field-affine-canonical-diagnostics-v5"
 
 MECHANICAL_SLOPES = "mechanical_slopes"
 SPECIMEN_CANONICAL_MOMENTUM = "specimen_canonical_momentum"
@@ -31,25 +31,30 @@ PLANE_CANONICAL_MOMENTUM = "plane_canonical_momentum"
 def _trace_basis(state, source, stop, *, save_z_mm=(), maximum_step_mm=None, events=None):
     """One shared linear observer; finite-ray transport retains nonlinear fields.
 
-    Analytic multipoles are linearised on the column axis. Mapped fields use
-    small central differences. These diagnostic bases are never a beam source.
+    Aligned analytic multipoles retain the original axis observer. Placed or
+    mapped fields use small central differences around the actual reference
+    trajectory, including nonlinear feeddown of placed multipoles. These
+    diagnostic bases are never a beam source.
     """
     from temsim.physics.lens_field_provider import active_vector_providers
     from temsim.physics.instrument_magnetic import active_column_events, events_overlapping_interval
+    from temsim.physics.posed_column_fields import capture_posed_column_fields
     # Normal observers trace the actual captured affine orbit. An explicitly
     # supplied empty tuple is reserved for an undriven mathematical response.
     events = events_overlapping_interval(state,
         active_column_events(state) if events is None else events, source, stop)
     # A physical electrostatic provider has finite radial bounds and can be
     # nonlinear off axis. Unit-metre basis rays are not admissible queries.
-    vector_maps = bool(active_vector_providers(state) or getattr(state, "electron_gun", None) is not None)
+    placed = tuple(field for field in capture_posed_column_fields(state)
+                   if field.field_support_mm[0] <= stop and field.field_support_mm[1] >= source)
+    vector_maps = bool(placed or active_vector_providers(state) or getattr(state, "electron_gun", None) is not None)
     steps = np.array((1e-8, 1e-8, 1e-6, 1e-6)) if vector_maps else np.ones(4)
     basis = np.column_stack((np.zeros(4), np.diag(steps)))
     if vector_maps:
         basis = np.column_stack((basis, -np.diag(steps)))
     checkpoints = sorted({float(stop), *(float(z) for z in save_z_mm if source <= float(z) <= stop)})
     result = propagate(state, source, stop, basis[0], basis[2], basis[1], basis[3],
-        events=events, include_spherical_aberration=False, include_hexapole=False,
+        events=events, include_spherical_aberration=False, include_hexapole=bool(placed),
         save_z_mm=checkpoints, checkpoint_z_mm=checkpoints, return_checkpoints=True,
         maximum_step_mm=maximum_step_mm)
     return result, steps, vector_maps

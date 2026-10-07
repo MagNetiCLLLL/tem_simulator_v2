@@ -901,6 +901,7 @@ local_start_z_mm = 772.5
 local_center_z_mm = 772.5
 local_end_z_mm = 772.5
 length_mm = 0.0
+plate_thickness_mm = 0.2
 vacuum_inner_diameter_mm = 20.0
 mechanical_outer_diameter_mm = 20.0
 mechanical_bore_diameter_mm = 12.0
@@ -915,11 +916,11 @@ material_class = "vacuum_boundary_aperture_material_not_public"
 mechanical_only = false
 optical_reference_local_z_mm = 772.5
 aperture_adjustability = "fixed_non_retractable_hardware_toml_design_variable"
-mechanical_axial_thickness_status = "not_public_zero_length_reference_with_schematic_display_thickness"
+mechanical_axial_thickness_status = "user_defined_0_2_mm_plate_matching_other_apertures_not_oem_measurement"
 conjugate_plane_status = "operating_mode_dependent_not_imposed_by_mechanical_layout"
 optical_constraint_policy = "always_inserted_hard_edge_no_automatic_preset_recalculation"
 mechanical_geometry_status = "documented_family_topology_titan_specific_dimensions_unverified"
-mechanical_geometry_source = "Public microscope manuals place a differential-pumping aperture between the column and projection chamber and document a 200 micrometre reference aperture. This simulator does not reproduce a specific instrument; its plate thickness and bore are not established by a production drawing. The zero-length axial row preserves the interface without inventing thickness."
+mechanical_geometry_source = "Public microscope manuals place a differential-pumping aperture between the column and projection chamber and document a 200 micrometre reference opening. The user selected a 0.2 mm plate thickness to match the other simulator apertures on 2026-10-07; this is a model parameter, not an OEM measurement. The zero-length layout row preserves the interface reference plane; the physical plate uses plate_thickness_mm about that plane."
 mechanical_geometry_source_urls = ["https://imf.ucmerced.edu/sites/g/files/ufvvjh1081/f/documents/tem_talosbasicguide_1.pdf", "https://www.dartmouth.edu/emlab/docs/fei_tecnai_f20_column_description_doc.pdf"]
 
 # Lower recording enclosure, separate from the viewing / STEM chamber above.

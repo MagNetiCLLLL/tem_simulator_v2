@@ -4643,7 +4643,8 @@ class TransverseBeamView(QWidget):
             self._plane_z_mm = float(result.simulation.incident.z[-1])
         self._redraw()
 
-    def display_wave_checkpoint(self, checkpoint, *, axial_bz_t, maximum_working_bytes=512*1024**2):
+    def display_wave_checkpoint(self, checkpoint, *, axial_bz_t, magnetic_gauge=None,
+                                maximum_working_bytes=512*1024**2):
         """Internal readout of an executed forward-column wave, not admission.
 
         No source, propagation, detector simulation or old-result replacement.
@@ -4656,7 +4657,8 @@ class TransverseBeamView(QWidget):
             previous_ranges = dict(wave.ranges)
             wave.deactivate()
         self._plane_z_mm = float(checkpoint.plane_z_mm)
-        self.analysis.wave = WaveBeamAnalysis(self.analysis, checkpoint, axial_bz_t, maximum_working_bytes)
+        self.analysis.wave = WaveBeamAnalysis(self.analysis, checkpoint, axial_bz_t,
+            maximum_working_bytes, magnetic_gauge=magnetic_gauge)
         self.analysis.wave.ranges.update(previous_ranges)
         self.analysis.wave.activate()
 

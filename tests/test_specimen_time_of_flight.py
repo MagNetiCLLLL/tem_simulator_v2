@@ -1,5 +1,6 @@
 """Executed specimen clocks; aggregate inelastic event times remain unknown."""
 from types import SimpleNamespace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -67,6 +68,11 @@ def test_magnetic_specimen_clock_counts_curved_path_and_signed_inverse():
 
 def test_elastic_offsets_follow_each_full_track_including_boundary_flights(monkeypatch):
     state = _field_free_state()
+    # Clock differences here require actual matter; application startup is
+    # deliberately vacuum, regardless of the requested envelope dimensions.
+    state.sample.specimen_mode = "atomic"
+    state.sample.inserted = True
+    state.sample.cif_path = str(Path(__file__).parent / "fixtures" / "cif" / "Si.cif")
     state.sample.thickness_nm = 100.
     state.sample.size_x_nm = state.sample.size_y_nm = 1000.
     monkeypatch.setattr(elastic, "elastic_scattering_rates_nm_inverse", lambda *_: ((14, .05),))

@@ -136,7 +136,7 @@ class ComponentDialog(QDialog):
         self.center = QLineEdit(format(float(self.part.get("local_center_z_mm", 0)), ".15g"))
         self.center.setObjectName("componentCenterZ")
         form.addRow("Centre Z (mm)", self.center)
-        from temsim.lens_pose import physical_pose_values, supports_physical_lens_pose
+        from temsim.lens_pose import physical_pose_values, supports_physical_lens_pose, physical_pose_description, column_pose_kind
         self.pose_values = {}
         if action == "place" and supports_physical_lens_pose(self.part):
             for field, value in physical_pose_values(self.part).items():
@@ -144,11 +144,10 @@ class ComponentDialog(QDialog):
                 label = ("Rotation " if unit == "mrad" else "Offset ") + field.split("_")[1].upper()
                 editor = QLineEdit(format(value, ".15g"))
                 editor.setObjectName("component_" + field)
-                editor.setToolTip("Rigid physical lens placement; its magnetic field and child components follow. "
-                                  "Rotations use right-handed X, then Y, then Z axes about the lens centre. "
-                                  "Field strength remains controlled by excitation.")
+                editor.setToolTip(physical_pose_description(self.part))
                 self.pose_values[field] = editor
-                form.addRow(f"{label} ({unit})", editor)
+                prefix = "Field " if column_pose_kind(self.part) == "field" else ""
+                form.addRow(f"{prefix}{label} ({unit})", editor)
         self.coordinate_note = QLabel()
         self.coordinate_note.setWordWrap(True)
         form.addRow(self.coordinate_note)
@@ -162,7 +161,7 @@ class ComponentDialog(QDialog):
         self.include_children.setVisible(action != "new")
         if self.pose_values:
             self.include_children.setEnabled(False)
-            self.include_children.setToolTip("A magnetic lens is placed together with its child hardware and field.")
+            self.include_children.setToolTip(physical_pose_description(self.part))
         form.addRow(self.include_children)
         self.summary = QLabel()
         self.summary.setObjectName("componentOperationSummary")

@@ -20,6 +20,113 @@ scattering or pressure attenuation. Electric and magnetic fields, specimen
 interactions, apertures, column walls and physical detector absorption remain
 active. Ideal vacuum does not mean ideal lenses or removal of aberrations.
 
+### Displaced and tilted main-column components
+
+The column wave solver supports small installation offsets and tilts of the
+built-in analytical magnetic lenses, deflectors, stigmators and quadrupole/
+hexapole corrector fields after the gun exit. Edit the existing component's physical
+offset/rotation parameters, apply the instrument changes, then **Calculate
+beam**. The ray and wave paths capture those same parameters; rotating the 3-D
+view alone does not move a lens. Use **Compare classical rays** to compare
+centres and first-order focusing at the same laboratory Z. Interference and
+diffraction structure need not resemble classical scatter points. Tip, extraction
+and acceleration electrodes, receivers and Energy Filter are outside this tilt
+extension. A logical field channel without a defined physical body moves its
+local field coordinates only; a channel with an explicit host reads that host's
+pose, rather than adding a second installation transform.
+
+Plane diagnostics and conjugate-plane searches use the same laboratory
+coordinates. For placed fields the conversion from canonical to mechanical
+increments uses the full `e/p * d(Axy)/d(x,y)` matrix at the reference chief
+ray, rather than assuming an axisymmetric Larmor term. These remain local
+first-order maps about that ray, not exact finite-amplitude maps with all
+aberrations. A displaced non-ideal hexapole retains its linear feed-down in
+this local observer. Imported maps without a wave vector potential retain
+their separately labelled historical gauge approximation.
+
+The implementation rotates the native magnetic vector potential with the lens,
+retains its longitudinal component, affine action and overlapping-field terms,
+and propagates the complex field on global XY slices. Its magnetic quadratic
+expansion follows each mode's carrier position and direction; this changes
+neither the lens pose nor the laboratory coordinates. The captured electric
+potential, focusing, axis energy and flight time remain active. The magnetic
+operator uses axis momentum and bounds the omitted transverse electric-magnetic
+coupling over the whole represented lattice/Fourier support. This admits weak
+electric tails when their bound fits the declared budget; a larger unresolved
+coupling is rejected. When spatial magnetic terms exceed the omission budget, a Hermitian
+spectral operator applies the spatial magnetic residual on the complex envelope,
+symmetrically around the quadratic step. It retains the analytical phase carrier
+and executes on the same CPU/GPU backend. The numerical default permits at most
+0.01 rad of omitted action per propagated metre; corrected steps allocate the
+budget left after electric-magnetic omission to the finite-grid exponential series. The execution record
+separates these quantities from floating-point allowances. Neither bound certifies
+grid resolution, axial splitting, or total simulation accuracy. Global and lens-local supported slope bounds
+must not exceed 0.1. Failed bounds retain the previous completed result.
+
+Tilted bore walls remain active even with lens excitation switched off. Swept
+slice masks use the same installed geometry as the ray interception law and
+catch oblique entry shoulders between Z nodes. This is an absorbing-boundary
+discretisation: hard-edge diffraction still requires step/grid convergence.
+Cached continuation retains the fields, bore poses and approximation budget;
+linear steps are grouped only when their represented support clears hardware.
+Probability-flow arrows use the same captured rotated vector potential at the
+selected plane. Later edits to lens controls do not change an existing result's
+arrows; independent states can share this readout only with a common magnetic
+state and Z.
+
+The native multipole model uses local `A=(0,0,P(x,y) f(z))`, with the original
+dipole/quadrupole/hexapole polynomial and finite uniform/Gaussian envelope.
+Rotation retains all three global vector-potential components and total-field
+cross terms. This preserves the existing transverse model; it does not add a
+new fringe-field model. Driven coils are captured at each mode's axial arrival
+time. If those captures differ, the single common probability-flow display is
+unavailable; intensity remains available. Missing executed timing is never
+replaced by the current GUI controls.
+
+Tilted circular apertures use their real declared `plate_thickness_mm`, hole
+opening and installed pose. Ray contact and wave absorption use the same finite
+plate geometry. The wave mask is applied between global-Z propagation steps,
+so absorption and edge diffraction require axial and transverse convergence.
+An aperture with no declared thickness cannot be tilted in coherent propagation;
+schematic drawing thickness is not a physical substitute.
+For the DPA, **3D Parts** and **All parameters** expose this same thickness;
+the configured default is **0.2 mm**, matching the other apertures as a
+user-selected model parameter. A legacy value **0** still means unspecified
+and is not accepted for tilted wave propagation.
+
+Native analytical lenses with displacement or tilt support their configured
+spherical aberration through a canonical thin-Cs screen, expanded to first
+order in the lens inclination. Ray and wave calculations read the same **Cs**
+and installation pose. Rays retain the existing geometric thin screen; the
+coherent operator approximates its paraxial, first-inclination limit, rather
+than claiming an identical operator at arbitrary angles or beam widths.
+The wave operator combines the thin-screen
+phase with a Hermitian spectral residual; at zero tilt its phase reduces
+exactly to the established thin-Cs phase in the displaced lens coordinates.
+Use the existing lens **Cs**, installation pose and toolbar compute-backend
+settings; no separate source or CPU/GPU controls are required.
+
+This approximation admits a combined lens inclination up to **10 mrad** and
+mechanical slopes up to **0.1**. Its default per-event phase-error estimate
+budget is **0.01 rad**, recorded separately from the numerical exponential
+and operator-splitting tolerances. The event also budgets bridge bending and
+momentum changes from the captured local electric-potential expansion, without
+applying a second electric propagation step. Coherent inputs outside these
+limits are rejected; these wave limits do not restrict the existing ray screen.
+This is not arbitrary-angle oblique-wave propagation, a higher-order Cs
+model or an experimental Cs calibration. First-order conjugate-plane
+diagnostics continue to exclude Cs and report the corresponding reference
+planes. Targeted checks cover CPU/GPU complex-field agreement, the particle
+response to Cs, zero-Cs and zero-tilt limits, and single execution across
+segment/cache boundaries. GPU initialization can dominate short calculations;
+these checks do not establish a GPU speedup.
+
+The solver still rejects tilted apertures without physical thickness or with
+unsupported non-circular openings, and imported 3-D magnetic maps without a
+compatible vector potential. Ordinary aligned apertures and the other
+supported column elements remain active. Zero installation pose retains the
+established aligned path.
+
 **Source selection:** stored classical defaults remain unchanged. A projected
 emission width, metal apex radius and back-projected virtual-source width are
 different quantities. The historical 5 nm / 0.3 eV inputs are editable example

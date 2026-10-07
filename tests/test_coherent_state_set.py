@@ -208,3 +208,25 @@ def test_large_weights_normalize_without_overflow():
         _item(np.full((2, 2), .1), weight=1e308),
         _item(np.full((2, 2), .3), weight=1e308)])
     np.testing.assert_allclose(preview.density, .2)
+
+
+def test_overlay_preserves_only_one_common_captured_magnetic_gauge():
+    from dataclasses import replace
+    from test_wave_plane_observables import _posed_gauge
+    gauge = _posed_gauge()
+    first, second = (_item(np.full((2, 2), .25), z=gauge.plane_z_mm) for _ in range(2))
+    for row in (first, second):
+        row[1].magnetic_gauge = gauge
+        row[1].axial_bz_t = gauge.aligned_bz_t
+    _, shared = combine_intensity_previews([first, second])
+    assert shared.magnetic_gauge.fingerprint == gauge.fingerprint
+    # Equal scalar fields are insufficient if a lens has moved. The mixture
+    # can still display intensity but must not fabricate a shared flow gauge.
+    field = gauge.fields[0]
+    moved = replace(field.registration, origin_global_m=(0., 0., 1.5))
+    second[1].magnetic_gauge = replace(gauge, fields=(replace(field, registration=moved),))
+    _, mixed = combine_intensity_previews([first, second])
+    assert mixed.magnetic_gauge is None and mixed.axial_bz_t is None
+    assert mixed.probability == pytest.approx(shared.probability)
+    _, excluded = combine_intensity_previews([first, (*second[:2], 0.)])
+    assert excluded.magnetic_gauge.fingerprint == gauge.fingerprint
