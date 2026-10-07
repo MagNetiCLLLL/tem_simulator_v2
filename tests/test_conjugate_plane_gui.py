@@ -51,7 +51,9 @@ def test_cursor_visibility_and_reference_pinning_are_lazy(panel):
     assert not panel.submitted
     assert panel.find_button.isEnabled()
     assert panel.find_button.property("calculationAction") is True
-    assert panel.maximumHeight() <= 260
+    assert panel.maximumHeight() > 260
+    assert panel.details.isHidden()
+    assert not panel.details_toggle.isChecked()
     assert "selected 30" in panel.reference.text()
 
 

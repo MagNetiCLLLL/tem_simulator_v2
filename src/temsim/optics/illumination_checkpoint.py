@@ -15,7 +15,8 @@ from temsim.optics.surface_probe_focus import (
 
 class IlluminationCheckpoint:
     def __init__(self, state, keys, *, step_mm=.05):
-        from temsim.physics.core import FIELD_SIGMA_CUTOFF, propagate, active_mapped_providers
+        from temsim.physics.core import FIELD_SIGMA_CUTOFF, propagate
+        from temsim.physics.lens_field_provider import active_vector_providers
         from temsim.optics.direct_alignment import _pre_sample_kick_events
         from temsim.optics.electron_gun.source import trace_source_to_exit
         from temsim.physics.aperture_clipping import clip_segment
@@ -33,9 +34,9 @@ class IlluminationCheckpoint:
             raise ValueError("Only installed and enabled lenses can use a fitting checkpoint")
         start = float(self._state.electron_gun.exit_plane_z_mm)
         self._prefix = None
-        # Mapped supports and excitation-dependent models need their own
+        # Mapped/posed supports and excitation-dependent models need their own
         # dependency proof; use ordinary full transport until qualified.
-        if active_mapped_providers(self._state) or any(not hasattr(self._lenses[k], "field_support_mm") for k in self.keys):
+        if active_vector_providers(self._state) or any(not hasattr(self._lenses[k], "field_support_mm") for k in self.keys):
             return
         boundary = min(self._lenses[k].field_support_mm(FIELD_SIGMA_CUTOFF)[0] for k in self.keys)-1e-7
         if not start < boundary < surface_z_mm(self._state)-.0002:

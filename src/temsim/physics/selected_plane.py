@@ -113,6 +113,10 @@ def _observer_state(snapshot):
     aliases without deep-copying field maps or executed particle arrays.
     """
     state = copy(snapshot)
+    # Pose memos contain mutable dictionaries inside immutable-assembly keys.
+    # Rebuild observer-local entries rather than mutate the retained result.
+    for name in ("_lens_pose_registration_cache", "_lens_pose_bore_cache"):
+        state.__dict__.pop(name, None)
     for name in ("_active_backends_used", "_runtime_lens_field_provider_cache",
                  "_runtime_nonlinear_provider_cache", "_field_provider_diagnostics",
                  "_lens_field_map_bindings"):

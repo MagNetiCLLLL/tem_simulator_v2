@@ -11,7 +11,14 @@ from PySide6.QtWidgets import QDockWidget, QInputDialog, QSplitter, QTabWidget
 
 class WorkspaceLayouts(QObject):
     ROOT = "workspace_layouts/v1"
-    RAY_SPLITTERS = {"rayDiagramVerticalSplitter", "rayDiagramWorkspaceSplitter"}
+    RAY_SPLITTERS = {
+        "rayDiagramVerticalSplitter", "rayDiagramWorkspaceSplitter",
+        "rayDiagramConjugateSplitter",
+    }
+    RAY_DETAIL_DEFAULTS = {
+        "conjugate": False, "interaction": True, "conjugate_details": False,
+        "ray_plot_details": False,
+    }
     TASK_PAGES = {"Instrument": "Physical Layout", "Alignment": "Ray Diagram",
                   "Experiments": "Design Explorer", "Results": "Ray Diagram"}
     LIVE_PAGES = {"Alignment": "Calculation", "Results": "Working points"}
@@ -28,6 +35,10 @@ class WorkspaceLayouts(QObject):
             "magnetic": workspace.magnetic_field_toggle,
             "magnetic_link_ray": workspace.magnetic_field.field_lines.link_view,
             "transverse": workspace.transverse_beam_toggle,
+            "conjugate": workspace.conjugate_planes_toggle,
+            "interaction": workspace.interaction_detail_toggle,
+            "conjugate_details": workspace.conjugate_planes.details_toggle,
+            "ray_plot_details": workspace.ray_plot_details_toggle,
             "advanced_bank": workspace.interactive_calculation.advanced_bank,
         }
         self.ray_variant = self._ray_variant()
@@ -74,7 +85,13 @@ class WorkspaceLayouts(QObject):
 
     def _ray_variant(self):
         workspace = self.window.workspace
-        return f"m{int(workspace.magnetic_field_toggle.isChecked())}t{int(workspace.transverse_beam_toggle.isChecked())}"
+        base = f"m{int(workspace.magnetic_field_toggle.isChecked())}t{int(workspace.transverse_beam_toggle.isChecked())}"
+        conjugate = workspace.conjugate_planes_toggle.isChecked()
+        interaction = workspace.interaction_detail_toggle.isChecked()
+        # Keep existing saved m/t proportions for the original arrangement.
+        # Optional readouts get independent sizes without replacing that state.
+        variant = base if not conjugate and interaction else f"{base}c{int(conjugate)}i{int(interaction)}"
+        return variant + ("d1" if workspace.ray_plot_details_toggle.isChecked() else "")
 
     def _variant(self, name):
         return self.ray_variant if name in self.RAY_SPLITTERS else "default"
@@ -213,7 +230,13 @@ class WorkspaceLayouts(QObject):
                     if visible:
                         dock.raise_()
             toggles = data.get("toggles", {})
-            for name, checked in (toggles.items() if isinstance(toggles, dict) else ()):
+            # Older layouts predate the optional readouts. Restore their
+            # original presentation instead of inheriting another layout's
+            # expanded conjugate panel or hidden interaction budget.
+            restored_toggles = dict(self.RAY_DETAIL_DEFAULTS)
+            if isinstance(toggles, dict):
+                restored_toggles.update(toggles)
+            for name, checked in restored_toggles.items():
                 if name in self.toggles and isinstance(checked, bool):
                     self.toggles[name].setChecked(checked)
             self.ray_variant = self._ray_variant()
@@ -228,6 +251,10 @@ class WorkspaceLayouts(QObject):
             for name, title in (tab_states.items() if isinstance(tab_states, dict) else ()):
                 if name == "physicalLayoutTabs" and isinstance(title, str):
                     title = {"2D section": "2D", "3D model editor": "3D Parts"}.get(title, title)
+                if name == "energyFilterOutputTabs" and title == "Physical + rays":
+                    # Structure and ray plots now live in their own workspaces.
+                    # Retain the outputs page with a deterministic default.
+                    title = "EELS spectrum"
                 tabs = self.tabs.get(name)
                 if tabs is not None:
                     for index in range(tabs.count()):

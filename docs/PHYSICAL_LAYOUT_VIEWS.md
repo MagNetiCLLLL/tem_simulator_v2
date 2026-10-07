@@ -4,12 +4,13 @@ Physical Layout contains the following presentation modes:
 
 | Mode | Purpose | Source |
 | --- | --- | --- |
-| 2D | Whole-column mechanical section | Existing resolved layout display |
+| 2D | Existing fixed X-Z mechanical projection | Existing resolved layout display; unchanged for comparison |
+| Rotating section | A longitudinal cut through the column axis, with X-Z, Y-Z and arbitrary azimuth | Current saved assembly meshes, including physical placement and supported live aperture openings |
 | 3D Parts | Inspect and edit a part, its neighbours or its module | Existing file-backed part editor; edits remain a draft until Save |
 | 3D | Rotate, inspect and section the assembled column | Current saved `ResolvedAssembly`, with supported live aperture openings |
 | Energy Filter | Inspect the curved branch without compressing it onto the main column Z axis | The same installed filter dimensions used by its ray view |
 
-No high-accuracy calculation is required for 3D. A view change does not run
+No high-accuracy calculation is required for 3D or Rotating section. A view change does not run
 presets, propagate electrons, invalidate physics caches or replace images.
 The assembly page does not display unsaved 3D Parts drafts; Save them first.
 
@@ -45,6 +46,84 @@ Existing dimensions remain editable; copied pole orientation and split winding
 material intervals are retained. Arbitrary CAD shapes remain excluded from the
 current axisymmetric field solver. Position previews describe axial envelopes,
 not a complete solid-interference or mechanical-fit analysis.
+
+## Physical magnetic-lens placement
+
+Round magnetic-lens assemblies have physical X/Y/Z offsets in mm and X/Y/Z
+rotation angles in mrad. Rotations are right-handed, applied X then Y then Z
+about the unposed mechanical centre. The same rigid transform places the lens
+magnetic field, its owned poles/coils/housing, and its owned bore or aperture.
+The 3D Parts view previews a draft; Save and apply it before recalculating rays.
+Selecting a physical child exposes its **Parent lens** placement controls.
+The original 2D view projects the posed local X-Z section into global X-Z.
+Use Rotating section to compare cuts in different directions, or 3D to
+inspect the complete posed solid.
+
+Ownership follows the lens's mechanical hierarchy. A shared C1/C2 cartridge
+appears once and follows its declared parent, not both optical channels.
+Nested round lenses inherit the containing lens pose. Separately mounted
+sample/stage, steering and stigmator devices, control channels and virtual
+references do not inherit it: their `parent_key` describes packing or navigation,
+not a rigid mount. Stationary column vacuum tubes remain stationary.
+For posed lenses, clipping retains each declared overlapping part bore and the
+fixed continuous vacuum tube; a wider tube cannot disappear merely because the
+centred layout previously retained only its narrower overlapping lens bore.
+
+Legacy lens CAD offsets and degree-valued rigid rotations are read as physical
+placement and exposed by the editor in mm/mrad, without applying them twice.
+Changing a winding thickness, material shape, CAD scale or Boolean cut does not
+quantitatively change the prescribed magnetic field strength. Individual child
+CAD edits remain shape edits; use the parent lens placement controls to move
+its magnetic axis and complete magnetic assembly together.
+
+The existing thin equivalent spherical-aberration kick is attached to that
+same lens frame. It remains an empirical coefficient model, not an aberration
+fit inferred from the solid. Posed field transport runs on the CPU and does not
+require CUDA; the unchanged centred case retains its existing fast path.
+The analytical path retains its local paraxial law under the rigid transform,
+so an infinitesimal placement does not introduce full-Lorentz higher-order
+terms. Imported spatial field maps retain their existing vector Lorentz law.
+The coherent column-wave solver does not yet support these placed spatial
+fields; use Run high-accuracy once for the particle/ray result.
+
+The TOML entries are `offset_x_mm`, `offset_y_mm`, `offset_z_mm`, and
+`rotation_x_mrad`, `rotation_y_mrad`, `rotation_z_mrad`. Zero preserves the
+nominal placement. For example, `rotation_y_mrad = 1.0` tilts the lens by
+0.001 rad about Y. Field-map placement composes with the map's own registration;
+it does not require solving or reimporting the field shape. An inseparable
+joint nonlinear field can move only as one common rigid frame.
+
+## Comparing the projection and rotating section
+
+The original **2D** page remains unchanged. **Rotating section** intersects the
+same saved, globally placed geometry used by **3D** with a plane containing
+the nominal column Z axis. At viewing azimuth phi, the displayed transverse
+coordinate is `U = X cos(phi) + Y sin(phi)` and the cut plane is
+`V = -X sin(phi) + Y cos(phi) = 0`. **X-Z** selects 0 degrees and **Y-Z** 90
+degrees; the slider and numeric field select intermediate angles. This angle
+is in degrees and changes only the view, independently of lens installation
+rotations in mrad.
+
+**Follow Ray Diagram** shares the viewing azimuth in both directions. Uncheck
+it for independent comparison. Ray Diagram projects all retained rays; the
+section shows only where material intersects the chosen plane. A displaced
+body outside that plane can disappear, and a hole appears only when the plane
+actually cuts it. A rotation does not retrace particles, recalculate fields,
+change optics or replace retained scientific results.
+
+Material-coloured contours preserve bores and CAD openings. These are cuts of
+the configured tessellated solids, not verified manufacturer CAD. Schematic
+envelopes remain marked as approximate and can be hidden. Virtual channels
+and non-material guides are excluded. The view uses the saved assembly and
+current supported geometry inputs; unsaved 3D Parts drafts are excluded, and
+retained ray results can belong to earlier settings.
+
+Only a visible page builds geometry. The rotating-section and 3D pages share
+one retained column mesh model, with 32 angular segments for revolved parts;
+cuts between mesh vertices therefore have a small tessellation error. Angle
+changes reuse those meshes, are throttled during dragging, and keep a bounded
+cache of recent cuts. No CUDA or OpenGL context is required. Changing angle
+preserves zoom; **Fit assembly** and **Fit selected** explicitly recenter it.
 
 ## Using the assembly view
 
@@ -106,6 +185,14 @@ after the final fit range, avoiding repeated layout during opening.
 
 ## Validation
 
+On 2026-10-07, an offscreen CPU check of **FEG + C3 + Probe Corrector + No
+Energy Filter** rendered 165 meshes / 45,320 triangles without geometry errors.
+Whole-column and Objective X-Z/Y-Z screenshots were inspected. Initial mesh
+construction and display took 2.18 s; four angle changes took 173-213 ms each
+including the page refresh, with the geometry intersection alone taking 48-53
+ms. The mesh build count remained one. These are local measurements of this
+configuration, not a frame-rate guarantee; no particle or field solve ran.
+
 The focused geometry, material, viewport, part-editor and layout suite passed
 242 tests on 2026-09-08. A native hidden-window render of the saved default
 assembly produced 181 meshes / 23,124 triangles without geometry errors.
@@ -119,17 +206,53 @@ electron-optical performance. No high-accuracy propagation was run.
 The filter is an installed branch of the recording system. Its incoming axis
 continues the main column; the configured 90-degree prism makes the outgoing
 axis horizontal. This installation does not introduce another optical bend.
-The Ray Diagram and Physical Layout branch pages reuse the existing result and
-geometry respectively. EELS spectrum and EFTEM readouts retain their existing
-calculation ownership.
+**Physical Layout > Energy Filter** shows the mechanical structure and dimensions.
+**Ray Diagram > Energy Filter rays** shows calculated internal trajectories with
+reference axes, component centres and optical planes; it does not repeat the
+mechanical housings. The standalone **Energy Filter** page contains parameter
+editing, **Calculate energy filter**, **EELS spectrum** and **EFTEM image**, with
+no duplicate structure or ray plot. The ray and output pages use the same accepted
+calculation result and retain previous results with a warning after input changes.
+Switching pages does not calculate. Saved layouts that selected the removed
+**Physical + rays** output tab now select **EELS spectrum**.
 
 With Energy Filter installed, the main-column bore and its material liner end
 at the declared optical entrance plane, inside the entrance-aperture carrier.
 This fixed plane also ends the main-column electric domain and hands particle
 transport to the branch. The same resolved segments feed the 2D view, 3D view,
 grounded electric boundary and column-wall interception. The recording-module
-envelope and all lens/sample positions remain unchanged; No Energy Filter keeps
-its original straight-pipe endpoint. Multipole interception uses mechanical
+envelope and all lens/sample positions remain unchanged. Without Energy Filter,
+the recording-module exit and straight pipe end at the Camera downstream
+surface (local Z=1172.75 mm), removing the old empty tail to 1350 mm. A separate
+**Camera / Lower Recording Enclosure (schematic)** spans the original viewing
+chamber end to this terminal surface. It adds no field source or clipping
+boundary; its 180/200 mm radial envelope is provisional, and camera packaging,
+end caps and pumping ports are not inferred. The original viewing/STEM chamber
+and all active detector coordinates are unchanged.
+
+Both physical variants obtain their global endpoints from the resolved
+assembly. Adding a NanoPulser, probe corrector or image corrector changes module
+origins, and the liner, 2D/3D/rotating-section geometry and fixed electric domain
+follow automatically. No absolute global camera coordinate is hard-coded.
+For an unfiltered assembly, the particle observation margin is bounded by the
+same mechanical end, without the legacy 2800 mm minimum. Explicitly uninstalled
+runtime placeholders do not extend the column; a real installed interaction
+beyond its assembled boundary remains an error. Existing retained calculations
+keep their captured input geometry until recalculated.
+
+The endpoint regression matrix covers C2, C3, probe-corrected, image-corrected
+and double-corrected columns, each with and without the electrostatic NanoPulser
+and Energy Filter (20 assemblies). The associated boundary, grounded-field
+request, recording-stop and chamber checks passed 85 tests on 2026-10-07.
+A software-rendered 3D check of FEG + double correctors + NanoPulser without
+Energy Filter placed the camera back surface, enclosure, liner and electric
+domain at the same Z=3493.15 mm, with no mesh errors or protruding pipe tail.
+A nine-particle CPU-only C2 / No Energy Filter calculation also returned its
+completed particle result in 46.9 s at a 1 mm integration step, without a
+domain or liner-coverage error. This is an execution smoke check, not a
+high-accuracy convergence qualification.
+
+Multipole interception uses mechanical
 housing length, independently of its shorter magnetic-field support.
 
 The local filter frame enters along +X and bends toward -Z. Installation uses

@@ -88,7 +88,8 @@ _PROVIDERS = {
                 GunDeflector, GunStigmator)
 }
 _PROVIDERS[GeometryAwareAnalyticFieldProvider] += _contract(
-    GeometryAwareAnalyticFieldProvider, ('magnetic_field_t', 'field_support_mm'))
+    GeometryAwareAnalyticFieldProvider, ('magnetic_field_t', 'field_support_mm',
+                                        '_native_magnetic_field_t', 'native_field_support_mm'))
 
 
 def lens_family(native):
@@ -101,6 +102,12 @@ def multipole_is_supported(component):
     return contract is not None and _matches(component, contract)
 
 
-def magnetic_provider_is_supported(provider):
+def magnetic_provider_is_supported(provider, *, allow_rigid_pose=False):
+    if isinstance(provider, GeometryAwareAnalyticFieldProvider) and not allow_rigid_pose:
+        from temsim.physics.lens_field_provider import _identity_registration
+        if not _identity_registration(provider.registration):
+            # Existing compiled test-electron laws assume the global axis.
+            # The Python vector provider retains the physical registration.
+            return False
     contract = _PROVIDERS.get(type(provider))
     return contract is not None and _matches(provider, contract)

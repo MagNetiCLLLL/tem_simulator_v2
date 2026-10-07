@@ -89,7 +89,7 @@ def _result(scale=1.0, *, lens_z=3.0, bore_mm=2.0, aperture_mm=0.15,
             lenses=(SimpleNamespace(key="test_lens", z_mm=lens_z, percent=50.0 * scale),),
             sample=SimpleNamespace(z_mm=10.0, inserted=True, specimen_mode="virtual"),
             recording_planes=(SimpleNamespace(
-                key="camera", z_mm=detector_z, inserted=True, readout_enabled=True,
+                key="camera", name="Camera", z_mm=detector_z, inserted=True, readout_enabled=True,
                 geometry="square",
                 outer_width_mm=1.0, inner_diameter_mm=0.0,
                 centre_offset_x_mm=0.02, centre_offset_y_mm=-0.03,

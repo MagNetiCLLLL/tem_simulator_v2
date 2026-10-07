@@ -85,8 +85,7 @@ class ConjugatePlanePanel(QWidget):
         super().__init__(parent)
         self.setObjectName("conjugatePlanePanel")
         self.setMinimumWidth(0)
-        self.setMaximumHeight(260)
-        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         self.pool = CoordinatedPool(self)
         self.pool.setMaxThreadCount(1)
         self._result = None
@@ -116,11 +115,11 @@ class ConjugatePlanePanel(QWidget):
         self.use_selected_button = QPushButton("Use selected Z")
         self.use_selected_button.setToolTip("Pin the current Ray Diagram Z as the object plane. Then click Find.")
         self.use_selected_button.clicked.connect(self.use_selected_z)
-        controls.addWidget(self.use_selected_button)
         layout.addLayout(controls)
 
         actions = QHBoxLayout()
         actions.setSpacing(4)
+        actions.addWidget(self.use_selected_button)
         self.find_button = QPushButton("Find conjugate planes")
         self.find_button.setProperty("calculationAction", True)
         self.find_button.setToolTip("Build the column transfer once, then reuse it for searches from other reference planes.")
@@ -133,6 +132,11 @@ class ConjugatePlanePanel(QWidget):
         actions.addWidget(self.cancel_button)
         actions.addWidget(self.go_button)
         actions.addStretch(1)
+        self.details_toggle = QPushButton("Details")
+        self.details_toggle.setObjectName("toggleConjugatePlaneDetails")
+        self.details_toggle.setCheckable(True)
+        self.details_toggle.setToolTip("Show the selected plane details and limits of the conjugate search.")
+        actions.addWidget(self.details_toggle)
         layout.addLayout(actions)
 
         self.status = QLabel("Choose a Ray Diagram Z, then click Find conjugate planes.")
@@ -152,8 +156,7 @@ class ConjugatePlanePanel(QWidget):
         self.table.verticalHeader().hide()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setMinimumHeight(60)
-        self.table.setMaximumHeight(115)
+        self.table.setMinimumHeight(90)
         self.table.setToolTip(self._SCOPE)
         self.table.horizontalHeaderItem(1).setToolTip(
             "Relative to the pinned reference. Negative ΔZ means an upstream reciprocal conjugate, not a virtual image."
@@ -174,6 +177,8 @@ class ConjugatePlanePanel(QWidget):
         self.details.setMinimumHeight(40)
         self.details.setMaximumHeight(65)
         self.details.setPlainText(self._SCOPE)
+        self.details.setVisible(False)
+        self.details_toggle.toggled.connect(self.details.setVisible)
         layout.addWidget(self.details)
         self._update_buttons()
 

@@ -1,3 +1,6 @@
+import math
+
+
 MINIMUM_TEM_STOP_Z_MM = 2800.0
 RECORDING_STOP_MARGIN_MM = 0.5
 
@@ -118,6 +121,15 @@ def determine_tem_stop_z(state):
         "corrector_elements",
     ):
         for component in getattr(state, collection_name, ()):
+            # Optional hardware keeps its editable runtime object even when
+            # absent from the selected assembly (notably the filter entrance
+            # aperture). Such placeholders are not physical interaction
+            # stations. Enabled/inserted controls on installed devices must
+            # not change the retained column boundary.
+            if not bool(getattr(component, "installed", True)) or not bool(
+                getattr(component, "_layout_installed", True)
+            ):
+                continue
             z_mm = getattr(component, "z_mm", None)
             if z_mm is not None:
                 interaction_positions.append(float(z_mm))
@@ -134,6 +146,33 @@ def determine_tem_stop_z(state):
             interaction_positions.extend(
                 float(event[0]) for event in events
             )
+    assembly = getattr(state, "_resolved_assembly", None)
+    if assembly is not None and hasattr(assembly, "exit_z_mm"):
+        from temsim.component_keys import ENERGY_FILTER_ENTRANCE_APERTURE
+
+        part_keys = {part.key for part in getattr(assembly, "parts", ())}
+        if not part_keys.intersection(("energy_filter", ENERGY_FILTER_ENTRANCE_APERTURE)):
+            # The no-filter column ends at its assembled mechanical boundary.
+            # Module origins include optional correctors and the nanopulser;
+            # neither the historical 2800 mm floor nor a fixed global camera
+            # coordinate is valid for every installed configuration.
+            end_z_mm = float(assembly.exit_z_mm)
+            if not math.isfinite(end_z_mm) or end_z_mm <= 0.0:
+                raise ValueError("The assembled column endpoint must be finite and positive.")
+            if not all(math.isfinite(z_mm) for z_mm in interaction_positions):
+                raise ValueError("Column interaction positions must be finite.")
+            furthest_interaction_z_mm = max(interaction_positions, default=end_z_mm)
+            if furthest_interaction_z_mm > end_z_mm + 1.0e-9:
+                raise ValueError(
+                    f"Column interaction at Z {furthest_interaction_z_mm:.6g} mm "
+                    f"is beyond the assembled column endpoint {end_z_mm:.6g} mm."
+                )
+            # A display/observation margin may be shortened; a real station
+            # outside the physical electric-field domain must not be hidden.
+            return min(end_z_mm, furthest_interaction_z_mm + RECORDING_STOP_MARGIN_MM)
+        # An installed filter owns a curved downstream path. Its main-column
+        # entrance handoff is enforced by section_limits; do not reinterpret
+        # its downstream recording coordinates as a straight-column cutoff.
     furthest_interaction_z_mm = max((MINIMUM_TEM_STOP_Z_MM, *interaction_positions))
     # This is a physical observation coordinate, not an integration-grid
     # sentinel.  Tying it to ``state.step_mm`` moved the image/diffraction

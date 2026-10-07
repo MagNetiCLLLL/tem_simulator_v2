@@ -289,7 +289,8 @@ def test_transverse_view_is_embedded_right_of_ray_diagram_and_stacked(qtbot):
     assert workspace_splitter.orientation() == Qt.Orientation.Horizontal
     assert workspace_splitter.count() == 2
     assert workspace_splitter.widget(0) is workspace.ray_vertical_splitter
-    assert workspace_splitter.widget(1) is workspace.transverse_beam
+    assert workspace_splitter.widget(1) is workspace.ray_beam_tabs
+    assert workspace.ray_beam_tabs.widget(0) is workspace.transverse_beam
     assert workspace_splitter.handleWidth() >= 7
 
     transverse_layout = workspace.transverse_beam.plot_layout.content.layout()
@@ -306,7 +307,7 @@ def test_transverse_view_is_embedded_right_of_ray_diagram_and_stacked(qtbot):
 
     workspace.transverse_beam_toggle.setChecked(False)
     qtbot.wait(20)
-    assert workspace.transverse_beam.isHidden()
+    assert not workspace.transverse_beam.isVisible()
 
     workspace.transverse_beam_toggle.setChecked(True)
     qtbot.wait(20)
@@ -2289,6 +2290,8 @@ def test_sample_parameters_are_owned_by_central_workspace(qtbot):
     from specimen_inputs import SI_CIF
     page.cif_path.setText(str(SI_CIF))
     page._cif_edited()
+    assert window.state.sample.specimen_mode == "vacuum"
+    page.mode.setCurrentIndex(page.mode.findData("atomic"))
     page.tem_wave_enabled.setChecked(True)
     page.wave_grid.setValue(64)
     page.frozen_enabled.setChecked(True)
@@ -2705,7 +2708,7 @@ def test_ray_plot_marks_every_component_centre_and_detected_crossover(
     assert [
         window.workspace.illuminating_page.tabText(index)
         for index in range(window.workspace.illuminating_page.count())
-    ] == ["Illuminating Image", "Image Aberrations"]
+    ] == ["Camera / screen", "Image Aberrations", "Stored wave / reference"]
     assert window.workspace.magnetic_field.isHidden()
     window.workspace.magnetic_field_toggle.setChecked(True)
     assert not window.workspace.magnetic_field.isHidden()

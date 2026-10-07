@@ -24,7 +24,8 @@ def test_result_cutoff_selection_cursor_and_staleness_stay_separate(make_workspa
     assert bar.extent["resumable_z_mm"] == 12.
     assert bar.extent["requested_z_mm"] is None
     assert not bar.extent["stale"]
-    assert view.ray_primary_panel.layout().indexOf(bar) == view.ray_primary_panel.layout().indexOf(view.plot) + 1
+    assert view.ray_plot_details.layout().indexOf(bar) == 0
+    assert view.ray_plot_panel.layout().indexOf(view.ray_plot_details) == view.ray_plot_panel.layout().indexOf(view.plot) + 1
     page.section_group.setChecked(True)
     page.section_z.setValue(19.)
     assert bar.extent["requested_z_mm"] == 19.

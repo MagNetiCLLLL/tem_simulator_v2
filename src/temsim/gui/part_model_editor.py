@@ -448,7 +448,8 @@ class PartModelEditorPage(QWidget):
                     "outer_diameter_mm", "width_mm", "height_mm", "parent_key"}}
                 selected = candidate.add_component(make_component(**fields))
             elif action == "place":
-                candidate.place_component(source_key, values["center_z_mm"], include_children=values["include_children"])
+                candidate.place_component(source_key, values["center_z_mm"], include_children=values["include_children"],
+                                          physical_pose=values.get("physical_pose"))
                 selected = source_key
             else:
                 selected = candidate.copy_component_from(source_snapshot, source_key, values["key"], values["center_z_mm"],
@@ -860,11 +861,11 @@ class PartModelEditorPage(QWidget):
         row.addWidget(self.edit_feature_button)
         row.addWidget(self.remove_feature_button)
         layout.addLayout(row)
-        note = QLabel("Change model dimensions and X/Y scale, offset or rotation in Dimensions. "
+        note = QLabel("Change dimensions and physical lens position/rotation in Dimensions (rotations in mrad). "
                       "A selected face or edge supplies the initial cut position. "
                       "Holes and slots remove material; all changes support Undo and Save.\n\n"
-                      "This is the mechanical design model. Ray and field calculations still use "
-                      "the existing beam-passage and axisymmetric parameters.")
+                      "Physical magnetic lens placement moves its field and child hardware. "
+                      "CAD shape changes do not infer field strength from coil dimensions.")
         note.setWordWrap(True)
         layout.addWidget(note)
         self.parameter_tabs.addTab(page, "Features")
@@ -946,6 +947,18 @@ class PartModelEditorPage(QWidget):
             if supports_energy_filter_part(part):
                 by_key = {row["key"]: row for row in self.session.document["parts"]}
                 point, normal = energy_filter_feature_hit(part, by_key, point, normal)
+            else:
+                import numpy as np
+                from temsim.lens_pose import effective_part_transform_mm, supports_physical_lens_pose
+                by_key = {row["key"]: row for row in self.session.document["parts"]}
+                rotation, translation = effective_part_transform_mm(part, by_key)
+                point = rotation.T @ (np.asarray(point) - translation)
+                normal = rotation.T @ np.asarray(normal)
+                if supports_physical_lens_pose(part):
+                    part = deepcopy(part)
+                    transform = part.get("model_3d", {}).get("transform", {})
+                    transform.pop("offset_mm", None)
+                    transform.pop("rotation_deg", None)
             center, axis, depth = feature_placement(part, point, normal)
         feature = dict(id=f"{kind}_{count}", kind=kind, axis=axis,
                        center_mm=list(center), depth_mm=float(depth))
@@ -1319,7 +1332,9 @@ class PartModelEditorPage(QWidget):
         if base.get("kind", "existing") != "existing":
             # Explicit solids own their model dimensions. Original assembly
             # dimensions remain available in All parameters and the TOML panel.
-            fields = tuple(field for field in fields if field.path[2] == "model_3d")
+            from temsim.lens_pose import PHYSICAL_POSE_FIELDS
+            fields = tuple(field for field in fields if field.path[2] == "model_3d"
+                           or field.path[2] in PHYSICAL_POSE_FIELDS)
         try:
             model = part_model_from_document(self.session.document, self._selected_key,
                                              aperture_index=self._aperture_index, runtime_values=runtime_values)
@@ -1397,8 +1412,8 @@ class PartModelEditorPage(QWidget):
                     "length_mm": "Base length (Z)"}.get(field, fallback)
         if section == "transform" and len(path) == 6:
             axis = "XYZ"[path[5]]
-            return axis + {"scale_xy": " scale", "offset_mm": " offset",
-                           "rotation_deg": " rotation"}.get(field, " " + field)
+            return "CAD " + axis + {"scale_xy": " scale", "offset_mm": " offset",
+                                    "rotation_deg": " rotation"}.get(field, " " + field)
         if section == "features" and len(path) >= 6:
             feature = self.session.part(path[1])["model_3d"]["features"][field]
             name = {"diameter_mm": "Diameter", "depth_mm": "Cut depth",

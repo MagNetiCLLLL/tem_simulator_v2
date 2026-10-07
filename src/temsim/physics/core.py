@@ -29,7 +29,7 @@ from temsim.physics.compute_backend import (
 )
 from temsim.physics.lens_field_provider import (
     runtime_axial_magnetic_field_t,
-    FrozenMappedField, active_mapped_providers,
+    active_mapped_providers, active_vector_providers, freeze_vector_provider,
 )
 from temsim.physics.ray_integrator import (
     NUMBA_AVAILABLE,
@@ -131,6 +131,7 @@ class AxialPropagationPlan:
     electric_field: object | None = None
     electric_field_identity: str | None = None
     electric_reference_invariant_ev: float | None = None
+    posed_spherical_kicks: tuple = ()
 
 
 def _frozen_array(values, dtype=np.float64):
@@ -386,12 +387,16 @@ def spherical_aberration_kick_m3(z_mm, state):
         return result
     boundary_tolerance = 32.0 * np.finfo(np.float64).eps * max(1., abs(float(z[0])), abs(float(z[-1])))
     mapped_keys = {provider.lens_key for provider in active_mapped_providers(state)}
+    from temsim.lens_pose import has_lens_pose
     for lens in getattr(state, "lenses", ()):
         if not bool(getattr(lens, "enabled", True)):
             continue
         if lens.key in mapped_keys:
             # The imported spatial field supplies its own ray aberrations.
             # Do not add the native Gaussian lens's calibrated Cs again.
+            continue
+        if has_lens_pose(state, lens.key):
+            # The posed equivalent Cs impulse is applied in its lens frame.
             continue
         cs_mm = spherical_aberration_mm(lens, state.beam_voltage_kv)
         if cs_mm is None or float(cs_mm) == 0.0:
@@ -622,14 +627,16 @@ def build_propagation_plan(
     image_lens_events = (equivalent_image_events(state,float(z0),float(z1))
                          if reduce_image_maps else ())
     mapped_fields = tuple(
-        FrozenMappedField.from_provider(provider)
-        for provider in active_mapped_providers(state)
+        freeze_vector_provider(provider)
+        for provider in active_vector_providers(state)
         if not (reduce_image_maps and provider.lens_key in IMAGE_LENS_KEYS)
         and provider.field_support_mm()[0] <= float(z1)
         and provider.field_support_mm()[1] >= float(z0)
     )
     mapped_keys = {item.lens_key for item in mapped_fields}
-    exact_z_mm = [event.z_mm for event in image_lens_events]
+    from temsim.physics.posed_aberrations import posed_spherical_kicks
+    posed_cs = posed_spherical_kicks(state, float(z0), float(z1)) if include_spherical_aberration else ()
+    exact_z_mm = [event.z_mm for event in (*image_lens_events, *posed_cs)]
     if electric_field is not None:
         electric_z = getattr(electric_field.base_field, "z", ())
         exact_z_mm.extend(float(value)*1e3 for value in electric_z if z0 < float(value)*1e3 < z1)
@@ -649,7 +656,7 @@ def build_propagation_plan(
                           if z0 <= float(p.z_mm) <= z1)
         save_z_mm += tuple(float(v) for v in exact_z_mm)
     for item in mapped_fields:
-        lower, upper = item.field_map.field_support_mm
+        lower, upper = item.field_support_mm
         lower, upper = max(lower, float(z0)), min(upper, float(z1))
         if upper <= lower:
             continue
@@ -798,6 +805,7 @@ def build_propagation_plan(
             digest.update(uuid4().bytes)
     for item in mapped_fields:
         digest.update(item.fingerprint.encode("ascii"))
+    digest.update(repr(posed_cs).encode("utf-8"))
     for values in (
         zfull, step_m, magnetic, sx, sy, sxy, hex_normal, hex_skew,
         midpoint_magnetic, midpoint_sx, midpoint_sy, midpoint_sxy,
@@ -836,6 +844,7 @@ def build_propagation_plan(
         dipole_by_t=_frozen_array(dipole_by),
         reference_momentum_kg_m_s=reference_momentum,
         mapped_fields=mapped_fields,
+        posed_spherical_kicks=posed_cs,
         electric_field=electric_field,
         electric_field_identity=None if electric_field is None else electric_field.numerical_identity,
         electric_reference_invariant_ev=electric_reference,
@@ -883,9 +892,16 @@ def propagation_plan_common_prefix_nodes(previous, current):
         old, new = old_maps.get(key), new_maps.get(key)
         if old is not None and new is not None and old.fingerprint == new.fingerprint:
             continue
-        boundary = min(item.field_map.field_support_mm[0]
+        boundary = min(item.field_support_mm[0]
                        for item in (old,new) if item is not None)
         equal &= new_z[:count] < boundary
+    old_cs = {item.lens_key: item for item in previous.posed_spherical_kicks}
+    new_cs = {item.lens_key: item for item in current.posed_spherical_kicks}
+    for key in old_cs.keys() | new_cs.keys():
+        before, after = old_cs.get(key), new_cs.get(key)
+        if before != after:
+            boundary = min(item.z_mm for item in (before, after) if item is not None)
+            equal &= new_z[:count] < boundary
     for old, new in arrays:
         equal &= np.asarray(old[:count]) == np.asarray(new[:count])
     # Midpoint i belongs to the interval leaving node i.  A changed
@@ -945,6 +961,9 @@ def execute_propagation_plan(
     if not 0 <= start_index < len(plan.z_mm):
         raise ValueError("Propagation-plan start index is out of range")
     zfull = np.asarray(plan.z_mm[start_index:], dtype=np.float64)
+    from temsim.physics.posed_aberrations import kick_indices
+    posed_cs = kick_indices(plan.posed_spherical_kicks, zfull,
+                            include_initial=bool(include_initial_plane_kicks))
     step_m = np.ascontiguousarray(plan.step_m[start_index:], np.float64)
     def stages(node_name, midpoint_name):
         nodes = np.asarray(getattr(plan, node_name)[start_index:])
@@ -1069,6 +1088,7 @@ def execute_propagation_plan(
             optical_reference_invariant_ev=(plan.electric_reference_invariant_ev if is_ideal(state) else None),
             initial_time_s=timing.get("initial_time_s"), policy=policy,
             mapped_fields=plan.mapped_fields, step_operator=medium_transport,
+            posed_spherical_kicks=posed_cs,
             defer_nonfinite_until_clipping=defer_nonfinite_until_clipping,
             serial=bool(tuning or arrays[0].size <= 16),
             cancel_check=lambda: check_tuning_cancelled(state))
@@ -1095,8 +1115,9 @@ def execute_propagation_plan(
         backend, fallback_reason = BACKEND_CPU, "classical residual-medium collisions between optical steps"
     elif plan.mapped_fields:
         from temsim.physics.vector_field_transport import vector_map_rk4
-        backend, fallback_reason = BACKEND_CPU, "imported vector-field RK4"
+        backend, fallback_reason = BACKEND_CPU, "positioned magnetic vector-field RK4"
         outputs = vector_map_rk4(*inputs, z_mm=zfull, mapped_fields=plan.mapped_fields,
+                                posed_spherical_kicks=posed_cs,
                                 defer_nonfinite_until_clipping=defer_nonfinite_until_clipping,
                                 step_operator=medium_transport, **timing)
     elif (tuning and NUMBA_AVAILABLE and backend == BACKEND_NUMBA
@@ -1206,7 +1227,7 @@ def propagate(
     return result if return_checkpoints else result[:6 if return_flight_times else 5]
 
 def transfer(state,z0,z1):
-    if active_mapped_providers(state) or getattr(state, "electron_gun", None) is not None:
+    if active_vector_providers(state) or getattr(state, "electron_gun", None) is not None:
         from temsim.physics.first_order import trace_transverse_transfer
         matrix = trace_transverse_transfer(state, z0, z1).matrix
         return matrix[np.ix_((0, 2), (0, 2))]
@@ -1225,7 +1246,7 @@ def transfer(state,z0,z1):
 def complex_transfer(state, z0, z1):
     """Return the first-order, Larmor-coupled transfer in complex form."""
 
-    if active_mapped_providers(state) or getattr(state, "electron_gun", None) is not None:
+    if active_vector_providers(state) or getattr(state, "electron_gun", None) is not None:
         from temsim.physics.first_order import trace_transverse_transfer
         matrix = trace_transverse_transfer(state, z0, z1).matrix
         result = np.empty((2, 2), dtype=np.complex128)

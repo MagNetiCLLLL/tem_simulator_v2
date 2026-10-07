@@ -160,6 +160,90 @@ def test_ray_panel_combinations_keep_independent_sizes_across_restart(windows, q
     _assert_ratio(workspace.ray_vertical_splitter, magnetic)
 
 
+def test_conjugate_workspace_visibility_and_split_preserved_across_restart(windows, qtbot, monkeypatch):
+    make, settings = windows
+    window = make()
+    manager, workspace = window.workspace_layouts, window.workspace
+    before = deepcopy(window.state.to_dict())
+    workspace.show_ray_diagram()
+    panel = workspace.conjugate_planes
+    monkeypatch.setattr(panel.pool, "start", lambda *_: pytest.fail("Layout must not search conjugate planes"))
+    workspace.conjugate_planes_toggle.setChecked(True)
+    workspace.interaction_detail_toggle.setChecked(False)
+    panel.details_toggle.setChecked(True)
+    workspace.ray_plot_details_toggle.setChecked(True)
+    qtbot.wait(40)
+    splitter = workspace.ray_conjugate_splitter
+    assert manager.splitters["rayDiagramConjugateSplitter"] is splitter
+    assert manager.ray_variant == "m0t1c1i0d1"
+    expected = _resize_splitter(window, splitter.objectName(), [460, 220], qtbot)
+    saved_id = manager.save_as("Conjugate inspection")
+    workspace.conjugate_planes_toggle.setChecked(False)
+    workspace.interaction_detail_toggle.setChecked(True)
+    workspace.ray_plot_details_toggle.setChecked(False)
+    qtbot.wait(40)
+    assert manager.ray_variant == "m0t1"
+    workspace.conjugate_planes_toggle.setChecked(True)
+    workspace.interaction_detail_toggle.setChecked(False)
+    workspace.ray_plot_details_toggle.setChecked(True)
+    qtbot.wait(40)
+    _assert_ratio(splitter, expected)
+    assert panel._worker is None
+    assert window.state.to_dict() == before
+    manager.save_current()
+    window.close()
+    saved = settings.value(manager._key(saved_id, "data"))
+    assert saved["toggles"]["conjugate"] is True
+    assert saved["toggles"]["interaction"] is False
+    assert saved["toggles"]["conjugate_details"] is True
+    assert saved["toggles"]["ray_plot_details"] is True
+
+    restored = make()
+    qtbot.wait(60)
+    workspace = restored.workspace
+    assert restored.workspace_layouts.active_id == saved_id
+    assert workspace.conjugate_planes_toggle.isChecked()
+    assert not workspace.interaction_detail_toggle.isChecked()
+    assert workspace.conjugate_planes.details_toggle.isChecked()
+    assert workspace.ray_plot_details_toggle.isChecked()
+    assert workspace.conjugate_planes.isVisible()
+    assert workspace.conjugate_planes.details.isVisible()
+    assert workspace.ray_plot_details.isVisible()
+    assert not workspace.interaction_detail.isVisible()
+    _assert_ratio(workspace.ray_conjugate_splitter, expected)
+    assert workspace.conjugate_planes._worker is None
+    assert not restored.preview_timer.isActive()
+
+
+def test_legacy_ray_layout_keeps_original_readout_visibility_and_sizes(windows, qtbot):
+    make, _ = windows
+    window = make()
+    manager, workspace = window.workspace_layouts, window.workspace
+    workspace.show_ray_diagram()
+    expected = _resize_splitter(window, "rayDiagramVerticalSplitter", [660, 120, 0], qtbot)
+    legacy = manager._snapshot()
+    for name in manager.RAY_DETAIL_DEFAULTS:
+        legacy["toggles"].pop(name)
+    legacy["splitters"].pop("rayDiagramConjugateSplitter")
+    workspace.conjugate_planes_toggle.setChecked(True)
+    workspace.interaction_detail_toggle.setChecked(False)
+    workspace.conjugate_planes.details_toggle.setChecked(True)
+    workspace.ray_plot_details_toggle.setChecked(True)
+    qtbot.wait(40)
+    manager._apply(legacy)
+    qtbot.wait(40)
+    assert manager.ray_variant == "m0t1"
+    assert not workspace.conjugate_planes_toggle.isChecked()
+    assert workspace.interaction_detail_toggle.isChecked()
+    assert not workspace.conjugate_planes.details_toggle.isChecked()
+    assert not workspace.ray_plot_details_toggle.isChecked()
+    assert not workspace.conjugate_planes.isVisible()
+    assert workspace.interaction_detail.isVisible()
+    _assert_ratio(workspace.ray_vertical_splitter, expected)
+    assert workspace.conjugate_planes._worker is None
+    assert not window.preview_timer.isActive()
+
+
 def test_layout_changes_autosave_without_normal_exit(windows, qtbot):
     make, settings = windows
     window = make()

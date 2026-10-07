@@ -154,7 +154,7 @@ def test_three_modes_use_saved_assembly_without_calculation(window, qtbot):
     state = deepcopy(window.state.to_dict())
     high = object()
     workspace._high_accuracy_result = high
-    assert [layout.tabs.tabText(i) for i in range(layout.tabs.count())] == ["2D", "3D Parts", "3D", "Energy Filter"]
+    assert [layout.tabs.tabText(i) for i in range(layout.tabs.count())] == ["2D", "Rotating section", "3D Parts", "3D", "Energy Filter"]
     assert layout.assembly_3d.mesh_builds == 0
     workspace.tabs.setCurrentWidget(layout)
     layout.tabs.setCurrentWidget(layout.assembly_3d)
@@ -195,6 +195,69 @@ def test_restored_3d_mode_builds_when_shown_despite_blocked_tab_signals(window, 
     window.show()
     qtbot.waitUntil(lambda: page.mesh_builds == 1, timeout=20000)
     assert page.isVisible() and page._model.meshes
+    assert not window.preview_timer.isActive()
+
+
+def test_rotating_section_shares_meshes_and_angle_without_changing_physics(window, qtbot, monkeypatch):
+    workspace, layout = window.workspace, window.workspace.physical_layout
+    section = layout.rotating_section
+    before = deepcopy(window.state.to_dict())
+    retained = object()
+    workspace._high_accuracy_result = retained
+    updates = []
+    original_set_angle = workspace._set_projection_angle
+    def record_angle(angle, *, defer_redraw=False):
+        updates.append(defer_redraw)
+        original_set_angle(angle, defer_redraw=defer_redraw)
+    monkeypatch.setattr(workspace, "_set_projection_angle", record_angle)
+    # Use a small real assembly so the integration check exercises the mesh
+    # builder without loading every available instrument component.
+    layout.set_assembly(_assembly())
+    assert section.mesh_builds == layout._assembly_geometry_cache.mesh_builds == 0
+    original_items = tuple(layout.plot.items())
+    workspace.tabs.setCurrentWidget(layout)
+    layout.tabs.setCurrentWidget(section)
+    window.show()
+    qtbot.waitUntil(lambda: section._section is not None)
+    assert section._curves
+    section.yz_button.click()
+    assert workspace._projection_angle_deg == section._angle_deg == 90
+    assert updates == [True]  # Keep the existing deferred ray redraw path.
+    workspace._set_projection_angle(37.5)
+    assert section.angle_spin.value() == 37.5
+    qtbot.waitUntil(lambda: section._section.angle_deg == 37.5)
+    section.follow_ray_diagram.setChecked(False)
+    section.angle_spin.setValue(120)
+    assert workspace._projection_angle_deg == 37.5
+    workspace._set_projection_angle(62)
+    assert section._angle_deg == 120
+    section.follow_ray_diagram.setChecked(True)
+    assert section._angle_deg == 62
+    qtbot.waitUntil(lambda: section._section.angle_deg == 62)
+    assert tuple(layout.plot.items()) == original_items
+    assert section.mesh_builds == layout._assembly_geometry_cache.mesh_builds == 1
+
+    layout.tabs.setCurrentWidget(layout.assembly_3d)
+    qtbot.waitUntil(lambda: layout.assembly_3d._model is not None)
+    assert layout._assembly_geometry_cache.mesh_builds == 1
+    assert layout.assembly_3d._model.meshes[0] is section._model.meshes[0]
+    assert workspace._high_accuracy_result is retained
+    assert window.state.to_dict() == before
+    assert not window.preview_timer.isActive()
+
+
+def test_restored_rotating_section_builds_without_preview(window, qtbot):
+    workspace, manager = window.workspace, window.workspace_layouts
+    workspace.physical_layout.set_assembly(_assembly())
+    data = manager._snapshot()
+    data["tabs"][workspace.tabs.objectName()] = "Physical Layout"
+    data["tabs"]["physicalLayoutTabs"] = "Rotating section"
+    manager._apply(data)
+    section = workspace.physical_layout.rotating_section
+    assert section.mesh_builds == 0
+    window.show()
+    qtbot.waitUntil(lambda: section._section is not None)
+    assert section.isVisible() and section._curves
     assert not window.preview_timer.isActive()
 
 

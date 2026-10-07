@@ -24,8 +24,9 @@ class AssemblyModelPage(QWidget):
     component_selected = Signal(str)
     edit_part_requested = Signal(str, float)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, geometry_cache=None):
         super().__init__(parent)
+        self._geometry_cache = geometry_cache
         self.setObjectName("assemblyModelPage")
         self._assembly = None
         self._runtime_values = {}
@@ -160,8 +161,12 @@ class AssemblyModelPage(QWidget):
             if fingerprint == self._fingerprint:
                 return
             if assembly_fingerprint != self._assembly_fingerprint:
-                self._assembly_model = assembly_model_from_assembly(
-                    self._assembly, runtime_values=self._runtime_values, angular_segments=16)
+                if self._geometry_cache is None:
+                    self._assembly_model = assembly_model_from_assembly(
+                        self._assembly, runtime_values=self._runtime_values, angular_segments=16)
+                else:
+                    self._assembly_model = self._geometry_cache.model_for(
+                        self._assembly, self._runtime_values)
                 self._assembly_fingerprint = assembly_fingerprint
             model = replace(self._assembly_model,
                 meshes=self._assembly_model.meshes + self._cell_context.meshes(),

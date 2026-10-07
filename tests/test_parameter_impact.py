@@ -70,6 +70,26 @@ def test_original_il_dimensions_do_not_rebuild_ideal_or_analytic_field(parts, mo
     assert "focusing and magnetic rotation remain" in result.detail
 
 
+def test_physical_lens_pose_is_active_but_coil_shape_remains_independent(parts):
+    from temsim.parameter_semantics import describe_parameter
+    key = "intermediate_lens"
+    for field in ("offset_x_mm", "rotation_y_mrad"):
+        impact = _impact(parts, key, field, "analytical")
+        assert impact.active and "magnetic_field" in impact.effects
+        assert "not inferred from winding thickness" in impact.detail
+        meaning = describe_parameter(parts[key], ("parts", key, field), by_key=parts)
+        assert meaning.category == "placement"
+    part = deepcopy(parts[key])
+    part["model_3d"] = {"schema_version": 1, "transform": {
+        "offset_mm": [0.04, 0.0, 0.0], "rotation_deg": [0.1, 0.0, 0.0], "scale_xy": [1.2, 1.0]}}
+    impact = describe_parameter_impact(part, ("parts", key, "model_3d", "transform", "rotation_deg", 0),
+                                      by_key={**parts, key: part}, simulation_mode="analytical")
+    assert impact.active
+    summary = component_impact_summary(part, by_key={**parts, key: part}, simulation_mode="analytical")
+    assert "model_3d.transform.scale_xy[0]" in summary.ignored_cad_parameters
+    assert not any("rotation_deg" in field or "offset_mm" in field for field in summary.ignored_cad_parameters)
+
+
 @pytest.mark.parametrize("mode,recipe", [("linear_geometry", _linear), ("nonlinear_material", _nonlinear)])
 @pytest.mark.parametrize("field", ["length_mm", "mechanical_inner_diameter_mm", "mechanical_outer_diameter_mm"])
 def test_original_il_dimensions_enter_configured_fem(parts, mode, recipe, field):

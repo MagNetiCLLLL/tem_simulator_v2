@@ -60,12 +60,16 @@ from temsim.gui.accelerator_gap_overlay import AcceleratorGapOverlay
 from temsim.gui.transport_adjustment_readout import TransportAdjustmentReadout
 from temsim.gui.selected_plane_readout import SelectedPlaneReadout
 from temsim.gui.conjugate_plane_panel import ConjugatePlanePanel
+from temsim.gui.compact_status_label import CompactStatusLabel
+from temsim.gui.current_page_tabs import CurrentPageHeightTabs
 from temsim.gui.conjugate_plane_overlay import ConjugatePlaneOverlay
 from temsim.gui.design_explorer import DesignExplorerPage
 from temsim.gui.interactive_calculation import InteractiveCalculationPage
 from temsim.gui.model_inspector import ModelInspectorPage
 from temsim.gui.parameter_panel import ParameterPanel
 from temsim.gui.page_calculation import PageCalculationBar
+from temsim.gui.energy_filter_outputs import EnergyFilterOutputsView
+from temsim.gui.receiver_imaging import ReceiverImagingView
 from temsim.gui.transverse_projection import (
     format_projection_angle,
     project_transverse_values,
@@ -565,9 +569,7 @@ class VisualizationWorkspace(QWidget):
         super().__init__(parent)
         self.setObjectName("visualizationWorkspace")
 
-        self.heading = QLabel("Electron ray paths")
-        self.heading.setWordWrap(True)
-        self.heading.setMinimumWidth(0)
+        self.heading = CompactStatusLabel("Electron ray paths")
         font = self.heading.font()
         font.setBold(True)
         font.setPointSize(font.pointSize() + 2)
@@ -595,6 +597,10 @@ class VisualizationWorkspace(QWidget):
         self._scan_ray_offsets_m: dict[str, np.ndarray] = {}
         self._scan_playback_active = False
         self._scan_playback_time_s: float | None = None
+        self._receiver_scan_source = None
+        self._receiver_scan_pending_source = None
+        self._receiver_scan_active = False
+        self._receiver_scan_time_s: float | None = None
         self._convergence_colour_reference_mrad = 0.0
         self._projection_redraw_timer = QTimer(self)
         self._projection_redraw_timer.setSingleShot(True)
@@ -734,7 +740,7 @@ class VisualizationWorkspace(QWidget):
         # Keep the view controls responsive without allowing overlay buttons to
         # expand into oversized grid cells or wrap across multiple rows.
         heading_row = QHBoxLayout()
-        heading_row.addWidget(self.heading)
+        heading_row.addWidget(self.heading, 1)
         heading_row.addWidget(self.magnetic_field_toggle)
         heading_row.addWidget(self.transverse_beam_toggle)
         self.live_tuning_toggle = QToolButton()
@@ -742,7 +748,15 @@ class VisualizationWorkspace(QWidget):
         self.live_tuning_toggle.setText("Live tuning")
         self.live_tuning_toggle.setToolTip("Show or hide the Live tuning dock")
         heading_row.addWidget(self.live_tuning_toggle)
-        heading_row.addStretch(1)
+        self.ray_plot_details_toggle = QToolButton()
+        self.ray_plot_details_toggle.setObjectName("toggleRayPlotDetails")
+        self.ray_plot_details_toggle.setText("Plot details")
+        self.ray_plot_details_toggle.setCheckable(True)
+        self.ray_plot_details_toggle.setToolTip(
+            "Show calculation coverage, stop/cursor details and display-scale diagnostics below the plot. "
+            "Double-click the plot to select an axial position."
+        )
+        heading_row.addWidget(self.ray_plot_details_toggle)
 
         self.view_controls_panel = QWidget()
         self.view_controls_panel.setObjectName("rayDiagramControlRow")
@@ -787,11 +801,10 @@ class VisualizationWorkspace(QWidget):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        self.view_controls_scroll.setFixedHeight(
-            self.view_controls_panel.sizeHint().height()
-            + self.view_controls_scroll.horizontalScrollBar().sizeHint().height()
-            + 2
+        self.view_controls_scroll.horizontalScrollBar().rangeChanged.connect(
+            self._resize_ray_control_strip
         )
+        self._resize_ray_control_strip()
         self.view_controls_scroll.setStyleSheet(
             "QScrollArea#rayDiagramControlRowScroll {"
             " background: transparent; border: none; }"
@@ -800,24 +813,14 @@ class VisualizationWorkspace(QWidget):
             "QScrollBar:horizontal { height: 12px; }"
         )
 
-        navigation_hint = QLabel(
-            "Double-click Ray Diagram or Magnetic Field to update Beam analysis"
-        )
-        navigation_hint.setToolTip(
-            "Double-click in Ray Diagram or Magnetic Field to inspect an axial position. "
-            "Right-click a Physical Layout component to choose Ray Diagram, 3D Parts "
-            "or Vacuum map; the selected axial position is retained."
-        )
-        navigation_hint.setWordWrap(True)
-        navigation_hint.setStyleSheet("color: #64748b; font-weight: 600;")
         navigation_controls = QHBoxLayout()
-        navigation_controls.addStretch(1)
         navigation_controls.addWidget(QLabel("Axial Z"))
         navigation_controls.addWidget(self.axial_position)
         navigation_controls.addWidget(self.jump_to_position)
 
         self.plot = pg.PlotWidget(background="#050816")
         self.plot.setObjectName("rayPlot")
+        self.plot.setMinimumHeight(180)
         self._set_ray_axis_label("bottom", "Axial position")
         self._set_ray_axis_label("left", "Projected displacement")
         self._style_ray_axes()
@@ -864,10 +867,9 @@ class VisualizationWorkspace(QWidget):
         self._ray_component_highlight = None
         self._show_notice("Waiting for the first calculation")
 
-        self.stop_detail = QLabel(
+        self.stop_detail = CompactStatusLabel(
             "Click a stop marker to inspect the first physical intercept"
         )
-        self.stop_detail.setWordWrap(True)
         self.stop_detail.setStyleSheet("color: #fbbf24; font-weight: 600;")
         self.interaction_detail = QTextBrowser()
         self.interaction_detail.setObjectName(
@@ -888,8 +890,7 @@ class VisualizationWorkspace(QWidget):
             "Choose an axial Z position to calculate source-normalised "
             "interaction fractions."
         )
-        self.hint = QLabel("Angle and display-scale diagnostics appear here")
-        self.hint.setWordWrap(True)
+        self.hint = CompactStatusLabel("Angle and display-scale diagnostics appear here")
         self.hint.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.hint.setStyleSheet("color: #64748b; font-weight: 600;")
         self.hint.setToolTip(
@@ -909,15 +910,15 @@ class VisualizationWorkspace(QWidget):
         self.ray_primary_panel.setObjectName("rayDiagramPrimaryPanel")
         ray_primary_layout = QVBoxLayout(self.ray_primary_panel)
         ray_primary_layout.setContentsMargins(0, 0, 0, 0)
+        ray_primary_layout.setSpacing(3)
         ray_primary_layout.addLayout(heading_row)
         ray_primary_layout.addWidget(self.view_controls_scroll)
         ray_primary_layout.addWidget(self.transport_adjustment_readout)
-        ray_primary_layout.addWidget(navigation_hint)
-        ray_primary_layout.addLayout(navigation_controls)
         self.selected_plane_readout = SelectedPlaneReadout(self)
         self.selected_plane_readout.tooltip_changed.connect(self._set_selected_plane_equation_tooltip)
         plane_readout_row = QHBoxLayout()
         plane_readout_row.addWidget(self.selected_plane_readout, 1)
+        plane_readout_row.addLayout(navigation_controls)
         self.conjugate_planes_toggle = QPushButton("Conjugate planes")
         self.conjugate_planes_toggle.setObjectName("toggleConjugatePlanes")
         self.conjugate_planes_toggle.setCheckable(True)
@@ -926,20 +927,64 @@ class VisualizationWorkspace(QWidget):
             "This does not calculate crystal diffraction intensities."
         )
         plane_readout_row.addWidget(self.conjugate_planes_toggle)
+        self.interaction_detail_toggle = QPushButton("Interaction budget")
+        self.interaction_detail_toggle.setObjectName("toggleRayInteractionBudget")
+        self.interaction_detail_toggle.setCheckable(True)
+        self.interaction_detail_toggle.setChecked(True)
+        self.interaction_detail_toggle.setToolTip("Show or hide the selected-plane interaction summary below the diagram.")
+        self.interaction_detail_toggle.toggled.connect(
+            lambda visible: self._set_ray_panel_visible(self.interaction_detail, visible)
+        )
+        plane_readout_row.addWidget(self.interaction_detail_toggle)
         ray_primary_layout.addLayout(plane_readout_row)
         self.conjugate_planes = ConjugatePlanePanel(self)
         self.conjugate_planes.setVisible(False)
-        self.conjugate_planes_toggle.toggled.connect(self.conjugate_planes.setVisible)
+        self.conjugate_planes_toggle.toggled.connect(
+            lambda visible: self._set_ray_panel_visible(self.conjugate_planes, visible)
+        )
         self.conjugate_planes_toggle.toggled.connect(self.conjugate_plane_overlay.setVisible)
         self.conjugate_planes.plane_selected.connect(self.jump_to_ray_position)
         self.conjugate_planes.search_changed.connect(self.conjugate_plane_overlay.set_search)
-        ray_primary_layout.addWidget(self.conjugate_planes)
-        ray_primary_layout.addWidget(self.plot, 1)
+        self.ray_plot_panel = QWidget()
+        self.ray_plot_panel.setObjectName("rayDiagramPlotPanel")
+        ray_plot_layout = QVBoxLayout(self.ray_plot_panel)
+        ray_plot_layout.setContentsMargins(0, 0, 0, 0)
+        ray_plot_layout.setSpacing(2)
+        ray_plot_layout.addWidget(self.plot, 1)
         self.ray_calculation_extent = RayCalculationExtentBar()
         self.ray_calculation_extent.bind_plot(self.plot)
-        ray_primary_layout.addWidget(self.ray_calculation_extent)
-        ray_primary_layout.addWidget(self.stop_detail)
-        ray_primary_layout.addWidget(self.hint)
+        self.ray_plot_details = QWidget()
+        self.ray_plot_details.setObjectName("rayDiagramPlotDetails")
+        plot_details_layout = QVBoxLayout(self.ray_plot_details)
+        plot_details_layout.setContentsMargins(0, 0, 0, 0)
+        plot_details_layout.setSpacing(2)
+        plot_details_layout.addWidget(self.ray_calculation_extent)
+        plot_details_layout.addWidget(self.stop_detail)
+        plot_details_layout.addWidget(self.hint)
+        ray_plot_layout.addWidget(self.ray_plot_details)
+        self.ray_plot_details.hide()
+        self.ray_plot_details_toggle.toggled.connect(
+            lambda visible: self._set_ray_panel_visible(self.ray_plot_details, visible)
+        )
+        self.ray_conjugate_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.ray_conjugate_splitter.setObjectName("rayDiagramConjugateSplitter")
+        self.ray_conjugate_splitter.setChildrenCollapsible(False)
+        self.ray_conjugate_splitter.setHandleWidth(7)
+        self.ray_conjugate_splitter.setStyleSheet(
+            "QSplitter#rayDiagramConjugateSplitter::handle:vertical {"
+            " background: #334155; border-top: 1px solid #64748b; }"
+            "QSplitter#rayDiagramConjugateSplitter::handle:vertical:hover {"
+            " background: #2563eb; }"
+        )
+        self.ray_conjugate_splitter.addWidget(self.ray_plot_panel)
+        self.ray_conjugate_splitter.addWidget(self.conjugate_planes)
+        self.ray_conjugate_splitter.handle(1).setToolTip(
+            "Drag to resize the ray plot and conjugate-plane results."
+        )
+        self.ray_conjugate_splitter.setStretchFactor(0, 1)
+        self.ray_conjugate_splitter.setStretchFactor(1, 0)
+        self.ray_conjugate_splitter.setSizes((480, 160))
+        ray_primary_layout.addWidget(self.ray_conjugate_splitter, 1)
 
         self.ray_vertical_splitter = QSplitter(Qt.Orientation.Vertical)
         self.ray_vertical_splitter.setObjectName(
@@ -988,7 +1033,7 @@ class VisualizationWorkspace(QWidget):
             fixed_system="image"
         )
         self.optical_transfer = OpticalTransferView()
-        self.energy_filter = EnergyFilterView()
+        self.energy_filter = EnergyFilterOutputsView()
         self.energy_filter.calculation_bar = PageCalculationBar(
             "energy filter", "calculateEnergyFilter",
             note="Requires an assembled filter and a path reaching its entrance.",
@@ -1100,6 +1145,7 @@ class VisualizationWorkspace(QWidget):
         self.sample_interactions_3d = SampleInteractions3DPage()
         self.eds_page = EDSPage()
         self.wave_imaging = WaveImagingView()
+        self.receiver_imaging = ReceiverImagingView()
         self.sample_interactions_3d.calculation_bar = PageCalculationBar(
             "detailed sample", "sampleInteractions3DCalculate",
             button=self.sample_interactions_3d.calculate_paths,
@@ -1142,29 +1188,31 @@ class VisualizationWorkspace(QWidget):
         self.scanning_page.setStretchFactor(0, 0)
         self.scanning_page.setStretchFactor(1, 1)
         self.scanning_page.setSizes((420, 1000))
-        self.illuminating_page = QTabWidget()
+        self.illuminating_page = CurrentPageHeightTabs()
         self.illuminating_page.setObjectName("illuminatingImageTabs")
         self.illuminating_page.addTab(
-            self.wave_imaging, "Illuminating Image"
+            self.receiver_imaging, "Camera / screen"
         )
         self.illuminating_page.addTab(
             self.image_aberrations, "Image Aberrations"
         )
+        self.illuminating_page.addTab(self.wave_imaging, "Stored wave / reference")
+        self.illuminating_page.setTabToolTip(2, "Historical coherent image and specimen exit-wave diffraction reference; separate from physical particle reception.")
         self.design_explorer = DesignExplorerPage()
         self.interactive_calculation = InteractiveCalculationPage(self)
         self.interactive_calculation.hide()
         self.interactive_calculation.section_changed.connect(self._refresh_ray_calculation_extent)
-        self.ray_result_tabs = QTabWidget()
+        self.ray_result_tabs = CurrentPageHeightTabs()
         self.ray_result_tabs.setObjectName("rayResultTabs")
         self.ray_result_tabs.addTab(self.ray_workspace_splitter, "Rays")
         self.ray_result_tabs.addTab(self.interactive_calculation.readout_panel, "Cached signals")
         self.ray_result_tabs.setTabToolTip(1, "Current pixel detector counts and separate Advanced-bank readout")
-        self.energy_filter_rays = EnergyFilterView(show_outputs=False)
+        self.energy_filter_rays = EnergyFilterView(show_rays=True)
         self.energy_filter_rays.setObjectName("energyFilterRayView")
         self.ray_result_tabs.addTab(self.energy_filter_rays, "Energy Filter rays")
         self.ray_result_tabs.setTabToolTip(2, "Internal branch rays from the existing Energy Filter calculation")
-        # Mirror accepted publication and invalidation, including retained cached
-        # traces. Opening either tab never creates another calculation request.
+        # Publish the same accepted result to its ray and output views.
+        # Opening either tab never creates another calculation request.
         self.energy_filter.result_displayed.connect(self.energy_filter_rays.display_result)
         self.energy_filter.result_stale.connect(self.energy_filter_rays.mark_result_stale)
         self.energy_filter_rays.component_selected.connect(self._energy_filter_plot_selected)
@@ -1181,7 +1229,7 @@ class VisualizationWorkspace(QWidget):
         self.coherent_beam = CoherentBeamPage()
         self.coherent_ray_view = CoherentBeamMirror(self.coherent_beam)
         self.ray_beam_tabs.addTab(self.coherent_ray_view, "Beam observation")
-        self.tabs = QTabWidget()
+        self.tabs = CurrentPageHeightTabs()
         self.tabs.setObjectName("visualizationTabs")
         self.tabs.tabBar().setExpanding(False)
         self.tabs.tabBar().setUsesScrollButtons(True)
@@ -1264,9 +1312,8 @@ class VisualizationWorkspace(QWidget):
             self.component_selected.emit
         )
         self.magnetic_field.field_lines.session_projection_requested.connect(self._set_projection_angle)
-        self.energy_filter.component_selected.connect(
-            self._energy_filter_plot_selected
-        )
+        self.physical_layout.rotating_section.projection_angle_changed.connect(
+            lambda angle: self._set_projection_angle(angle, defer_redraw=True))
         self.physical_layout.energy_filter_structure.component_selected.connect(
             self.select_energy_filter_component
         )
@@ -1288,6 +1335,7 @@ class VisualizationWorkspace(QWidget):
         for page, scope in (
             (self.sample_page, "sample"), (self.eds_page, "eds"),
             (self.scan_control, "stem"), (self.wave_imaging, "imaging"),
+            (self.receiver_imaging, "receiver"),
         ):
             page.calculation_requested.connect(
                 lambda scope=scope: self.calculation_requested.emit(scope)
@@ -1309,6 +1357,12 @@ class VisualizationWorkspace(QWidget):
         )
         self.scan_control.playback_active_changed.connect(
             self._scan_playback_active_changed
+        )
+        self.scan_control.playback_time_changed.connect(
+            self._receiver_scan_time_changed
+        )
+        self.scan_control.playback_active_changed.connect(
+            self._receiver_scan_active_changed
         )
         self.physical_layout.axial_position_selected.connect(
             lambda z_mm: self.jump_to_ray_position(z_mm, activate_tab=False)
@@ -1452,8 +1506,7 @@ class VisualizationWorkspace(QWidget):
     def select_energy_filter_component(self, key: str) -> bool:
         """Select one Energy Filter-local component without recursion."""
 
-        for view in (self.energy_filter, self.energy_filter_rays,
-                     self.physical_layout.energy_filter_structure):
+        for view in (self.energy_filter_rays, self.physical_layout.energy_filter_structure):
             view.focus_component(key)
         index = self.energy_filter_component_selector.findData(str(key))
         if index < 0:
@@ -2129,12 +2182,12 @@ class VisualizationWorkspace(QWidget):
             f"{scan_text}{tuning_text} | {display_status}"
         )
         self.heading.setToolTip(
-            "Detailed specimen trajectories show the captured beam state. "
+            self.heading.text() + ("\nDetailed specimen trajectories show the captured beam state. "
             "Cached raster offsets describe optical-reference rays only, so "
             "the complete detailed ray display remains fixed. STEM image "
             "playback is separate."
             if display_status == "Specimen exit" and self._scan_ray_paths is not None
-            else ""
+            else "")
         )
         if self._selected_z_mm is None:
             self.stop_detail.setText(
@@ -2220,6 +2273,73 @@ class VisualizationWorkspace(QWidget):
         if not preserve_playback:
             self._scan_playback_active = False
             self._scan_playback_time_s = None
+
+    def _publish_scan_control_result(
+        self, result, *, complete=False, explicit_calculation=False
+    ) -> None:
+        """Associate playback with the calculation that supplied its frame."""
+        frame = getattr(result, "stem_scan", None)
+        old_frame = self.scan_control._stem_frame
+        self._receiver_scan_pending_source = result
+        try:
+            self.scan_control.display_result(
+                getattr(result, "scan_geometry", None), frame,
+                complete=complete,
+                state_snapshot=getattr(result, "state_snapshot", None),
+                explicit_calculation=explicit_calculation,
+            )
+        finally:
+            self._receiver_scan_pending_source = None
+        if self.scan_control._stem_frame is None:
+            self._receiver_scan_source = None
+            self._receiver_scan_time_s = None
+        elif frame is self.scan_control._stem_frame and (
+            frame is not old_frame or explicit_calculation
+            or getattr(self, "_receiver_scan_source", None) is None
+        ):
+            # A disabled scan need not emit a start signal. Cached frames keep
+            # their original source even when another page publishes a result.
+            if self._receiver_scan_source is not result:
+                self._receiver_scan_time_s = None
+            self._receiver_scan_source = result
+
+    def _receiver_scan_active_changed(self, active: bool) -> None:
+        if active:
+            pending = self._receiver_scan_pending_source
+            if (
+                pending is not None
+                and getattr(pending, "stem_scan", None) is self.scan_control._stem_frame
+            ):
+                self._receiver_scan_source = pending
+                self._receiver_scan_time_s = None
+        source = self._receiver_scan_source
+        if active and (
+            source is None
+            or getattr(source, "stem_scan", None) is not self.scan_control._stem_frame
+        ):
+            return
+        self._receiver_scan_active = bool(active)
+        if source is not None:
+            # A replacement frame emits its old stop before its new start.
+            self.receiver_imaging.follow_scan_started(source, bool(active))
+
+    def _receiver_scan_time_changed(self, time_s: float) -> None:
+        source = self._receiver_scan_source
+        if source is None or getattr(source, "stem_scan", None) is not self.scan_control._stem_frame:
+            return
+        self._receiver_scan_time_s = float(time_s)
+        self.receiver_imaging.follow_scan_time(source, float(time_s))
+
+    def _sync_receiver_scan_playback(self) -> None:
+        """Catch up a newly published receiver without restarting STEM."""
+        source = self._receiver_scan_source
+        if not self._receiver_scan_active or source is None:
+            return
+        if getattr(source, "stem_scan", None) is not self.scan_control._stem_frame:
+            return
+        self.receiver_imaging.follow_scan_started(source, True)
+        if self._receiver_scan_time_s is not None:
+            self.receiver_imaging.follow_scan_time(source, self._receiver_scan_time_s)
 
     def _scan_playback_active_changed(self, active: bool) -> None:
         self._scan_playback_active = bool(active)
@@ -2340,6 +2460,7 @@ class VisualizationWorkspace(QWidget):
         )
         self.magnetic_field.set_projection_angle(angle)
         self.coherent_beam.set_projection_angle(angle)
+        self.physical_layout.rotating_section.set_projection_angle(angle)
         if changed and not self.transverse_beam.isVisible() and self._last_result is not None:
             self._pending_ray_panels[self.transverse_beam] = self._last_result
         if changed and self._last_result is not None:
@@ -2360,7 +2481,6 @@ class VisualizationWorkspace(QWidget):
     def focus_component(self, part) -> None:
         """Remember the selected part and optionally focus its optical region."""
         self._focused_part = part
-        self.energy_filter.focus_component(part)
         self.energy_filter_rays.focus_component(part)
         self.vacuum_map.focus_component(part)
         self._pending_ray_focus.update((self.physical_layout, self.magnetic_field))
@@ -2370,6 +2490,13 @@ class VisualizationWorkspace(QWidget):
             self._highlight_ray_component(part)
         if self.auto_zoom.isChecked() and self._last_result is not None:
             self._apply_component_zoom(part)
+
+    def _resize_ray_control_strip(self, *_args) -> None:
+        scrollbar = self.view_controls_scroll.horizontalScrollBar()
+        self.view_controls_scroll.setFixedHeight(
+            self.view_controls_panel.sizeHint().height() + 2
+            + (scrollbar.sizeHint().height() if scrollbar.maximum() > 0 else 0)
+        )
 
     def _set_ray_panel_visible(self, panel, visible: bool) -> None:
         self.ray_layout_changing.emit()
@@ -4143,6 +4270,10 @@ class VisualizationWorkspace(QWidget):
         self._scan_ray_paths = None
         self._scan_ray_offsets_m = {}
         self._scan_playback_active = False
+        self._receiver_scan_source = None
+        self._receiver_scan_pending_source = None
+        self._receiver_scan_active = False
+        self._receiver_scan_time_s = None
         self._ray_display_cache.clear()
         self._ray_display_cache_bytes = 0
         self._ray_display_cache_result = None
@@ -4183,6 +4314,7 @@ class VisualizationWorkspace(QWidget):
         self.sample_interactions_3d.display_result(None)
         self.eds_page.display_result(None)
         self.wave_imaging.display_result(None)
+        self.receiver_imaging.display_result(None)
         self.model_inspector.display_result(None)
         self.vacuum_map.result_text.setText("No completed calculation.")
         self.interactive_calculation.set_particle_signals(())
@@ -4220,6 +4352,8 @@ class VisualizationWorkspace(QWidget):
         # Geometry changes also preserve the user's view; Fit is explicit.
         preserve_ray_view = self._last_result is not None
         self._last_result = result
+        self.receiver_imaging.display_result(result)
+        self._sync_receiver_scan_playback()
         self._ray_hardware_preview = None
         self.result_readout.publish(result, quality)
         self.hardware_tuning.publish_result(result, quality)
@@ -4270,7 +4404,7 @@ class VisualizationWorkspace(QWidget):
             # Low-count tuning can miss a tiny aperture. It must never erase
             # completed spectra/images or replace them with synthetic frames.
             self._update_projection_text()
-            self.heading.setToolTip("Optical tuning only: specimen scattering and image/spectrum calculations are deferred. Medium uses interior rays plus zero-current support probes; no density is inferred from the outline.")
+            self.heading.setToolTip(self.heading.text() + "\nOptical tuning only: specimen scattering and image/spectrum calculations are deferred. Medium uses interior rays plus zero-current support probes; no density is inferred from the outline.")
             return
         self.probe_aberrations.display_result(result)
         self.image_aberrations.display_result(result)
@@ -4290,11 +4424,9 @@ class VisualizationWorkspace(QWidget):
         if particle_tuning and getattr(result, "stem_scan", None) is None:
             self.scan_control.mark_stem_frame_stale()
         if not is_preview or no_illumination or particle_tuning or self._high_accuracy_result is None:
-            self.scan_control.display_result(
-                getattr(result, "scan_geometry", None),
-                getattr(result, "stem_scan", None),
+            self._publish_scan_control_result(
+                result,
                 complete=(not is_preview or no_illumination or particle_tuning) and not stem_not_requested,
-                state_snapshot=getattr(result, "state_snapshot", None),
                 explicit_calculation=calculation_scope == "stem",
             )
             if stem_not_requested:
@@ -4361,10 +4493,7 @@ class VisualizationWorkspace(QWidget):
         else:
             self.eds_page.mark_result_stale()
         if frame is not None:
-            self.scan_control.display_result(
-                getattr(result, "scan_geometry", None), frame, complete=True,
-                state_snapshot=getattr(result, "state_snapshot", None),
-            )
+            self._publish_scan_control_result(result, complete=True)
         else:
             self.scan_control.mark_stem_frame_stale()
         self._sample_region_result = region
@@ -4396,7 +4525,7 @@ class VisualizationWorkspace(QWidget):
                 f"Tip-to-sample rays cached. Click Calculate {bar.label} to update this page."
             )
         if getattr(result, "energy_filter", None) is None:
-            self.energy_filter.summary.setToolTip("Click Calculate energy filter to update this branch. Any retained trace belongs to its previous calculation.")
+            self.energy_filter.summary.setToolTip("Click Calculate energy filter to update the outputs. Any retained data belongs to its previous calculation; internal rays are in Ray Diagram > Energy Filter rays.")
         if region is None:
             self.sample_interactions_3d.summary.setToolTip("Click Calculate detailed sample to update the local paths. Rotation is display-only.")
 
@@ -4411,6 +4540,8 @@ class VisualizationWorkspace(QWidget):
 
     def mark_ray_stale(self, state, assembly=None) -> None:
         self.coherent_beam.set_state(state)
+        self.receiver_imaging.set_state(state)
+        self.receiver_imaging.mark_result_stale()
         self._ray_hardware_preview = self.transverse_beam.hardware.set_current_state(state, assembly)
         self.result_readout.mark_stale("ray")
         self.hardware_tuning.mark_result_stale("ray")
@@ -4434,6 +4565,7 @@ class VisualizationWorkspace(QWidget):
     def mark_high_accuracy_stale(self) -> None:
         """Keep completed displays visible but detach them from live inputs."""
 
+        self.receiver_imaging.mark_result_stale()
         if self._high_accuracy_result is None or not self._high_accuracy_current:
             return
         self._high_accuracy_current = False
@@ -4448,7 +4580,7 @@ class VisualizationWorkspace(QWidget):
                      self.wave_imaging, self.energy_filter, self.sample_interactions_3d):
             page.calculation_bar.mark_stale()
         self.sample_interactions_3d.calculate_paths.setEnabled(True)
-        self.energy_filter.summary.setToolTip("Click Calculate energy filter to update the branch ray trace for the current state.")
+        self.energy_filter.summary.setToolTip("Click Calculate energy filter to update the outputs for the current state. Internal rays are in Ray Diagram > Energy Filter rays.")
         self.sample_interactions_3d.summary.setToolTip("Click Calculate detailed sample to update this scene. Rotation and filtering remain display-only.")
 
     def high_accuracy_result_summary(self):

@@ -170,11 +170,18 @@ def _is_geometry_key(name: object) -> bool:
 def _geometry_mapping(values: object) -> dict[str, object]:
     if not isinstance(values, Mapping):
         return {}
-    return {
+    geometry = {
         str(key): value
         for key, value in values.items()
         if _is_geometry_key(key)
     }
+    from temsim.lens_pose import physical_pose_values, supports_physical_lens_pose
+    if supports_physical_lens_pose(values):
+        # Historical CAD rigid transforms are now physical field inputs too.
+        # Normalize both spellings to one placement identity; other CAD shape
+        # edits retain their existing, separate admission policy.
+        geometry.update(physical_pose_values(values))
+    return geometry
 
 
 def _assembly_scope_context(

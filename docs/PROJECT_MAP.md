@@ -142,7 +142,8 @@ flowchart LR
 | Physical Layout / Energy Filter / Transverse Beam / Optical Transfer / Magnetic Field | [diagnostic_tabs.py](../src/temsim/gui/diagnostic_tabs.py) | 最大界面文件，后续拆页优先候选 |
 | Optical Transfer 图形概览 | [optical_transfer_overview.py](../src/temsim/gui/optical_transfer_overview.py) | 读取已计算的 J_img/J_diff；展示位置圆和 canonical 动量角锥的响应、矩阵判定的共轭类型。相对参考轨迹、独立坐标尺度，不是束强度或衍射斑；原始矩阵及模式比较仍在 `OpticalTransferView` 子页 |
 | 任意所选 Z 的共轭面查找 | `physics/conjugate_planes.py`、`gui/conjugate_plane_panel.py`、`gui/conjugate_plane_overlay.py`、`gui/conjugate_plane_context.py` | 捕获光学状态的一阶传输缓存；固定参考 Z 后查找前后实共轭面、近似面及单方向焦面。完整二维 B 判据、排除自身、坐标和插值误差检查；列表点击仅移动观察光标，不改变参考面，并读取已记录路径及截断部件的实际 Z。后台取消及旧结果隔离，不重新传播完整粒子束或电子波，不宣称透过率或衍射强度合格。`tests/test_conjugate_planes.py`、`test_conjugate_plane_gui.py`、`test_conjugate_plane_workspace.py` 注册于 `field-ui/FU-09`。 |
-| Illuminating Image 与成像/衍射结果显示 | `gui/visualization.py` 的 `WaveImagingView` | `aberration_view.py` 为像差展示；历史波数据可读不代表恢复相干计算 |
+| Illuminating Image 相机/荧光屏接收图 | `gui/receiver_imaging.py`、`detector/receiver_image.py`、`detector/receiver_scan.py` | 真实粒子首次截获图；单帧扫描为明确标注的几何预览。见 `RECEIVER_IMAGING.md` |
+| 历史相干图与衍射参考 | `gui/visualization.py` 的 `WaveImagingView` | Illuminating Image > Stored wave / reference；`aberration_view.py` 为像差展示，历史波数据可读不代表恢复相干计算 |
 | 结果打开/导出和摘要 | `gui/result_files.py`、`result_readout.py` | 存档底层见下一节 |
 
 `Optical` 显示参与光学运行的组件；`Mechanical` 显示没有独立光学运行对象的机械部件；`Assembly` 提供完整装配层级。三者应共享同一装配身份，而不是为每个视图维护一套设备。

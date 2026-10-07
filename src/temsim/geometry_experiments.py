@@ -11,7 +11,7 @@ from temsim.immutable_json import json_digest, thaw_json
 def plan_geometry_sweep(recipe, module, part, dimension, values, *, optimization=None, maximum_points=64):
     if module not in {"gun", "column", "recording", "beam_blanker"}:
         raise ValueError("Choose a selected assembly module")
-    if not part or not dimension.endswith(("_mm", "_um", "_nm", "_deg")):
+    if not part or not dimension.endswith(("_mm", "_um", "_nm", "_deg", "_mrad")):
         raise ValueError("Choose one existing scalar part dimension")
     if recipe.instrument_snapshot is None:
         raise ValueError("Geometry experiments require a complete instrument capture")

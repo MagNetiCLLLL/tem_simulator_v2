@@ -179,6 +179,8 @@ def test_observer_detaches_mutable_runtime_containers_and_lens_metadata(monkeypa
     snapshot._field_provider_diagnostics = {"lens": {"scope": "accepted calculation"}}
     snapshot._lens_field_map_bindings = {"lens": shared_field}
     snapshot._objective_lens = snapshot.lenses[0]
+    for name in ("_lens_pose_registration_cache", "_lens_pose_bore_cache"):
+        setattr(snapshot, name, (object(), {"retained": shared_field}))
 
     def observer(state, target):
         source = state.sample.z_mm
@@ -186,6 +188,9 @@ def test_observer_detaches_mutable_runtime_containers_and_lens_metadata(monkeypa
         assert state._objective_lens is not snapshot._objective_lens
         assert state._runtime_lens_field_provider_cache["lens"][1] is shared_field
         assert state._lens_field_map_bindings["lens"] is shared_field
+        for name in ("_lens_pose_registration_cache", "_lens_pose_bore_cache"):
+            assert not hasattr(state, name)
+            setattr(state, name, (object(), {"observer": shared_field}))
         state._active_backends_used.add("Numba CPU")
         for name in ("_runtime_lens_field_provider_cache", "_runtime_nonlinear_provider_cache",
                      "_field_provider_diagnostics", "_lens_field_map_bindings"):
@@ -202,6 +207,8 @@ def test_observer_detaches_mutable_runtime_containers_and_lens_metadata(monkeypa
         assert "observer" not in getattr(snapshot, name)
     assert not hasattr(snapshot._objective_lens, "_image_plane_z_mm")
     assert snapshot._objective_lens.power_m1 == 0.
+    for name in ("_lens_pose_registration_cache", "_lens_pose_bore_cache"):
+        assert tuple(getattr(snapshot, name)[1]) == ("retained",)
     assert not shared_field.values.flags.writeable
 
 

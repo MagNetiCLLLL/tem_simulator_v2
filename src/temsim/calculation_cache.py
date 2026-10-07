@@ -624,6 +624,7 @@ def incident_field_dependencies(state):
     """
     from temsim.instrument_snapshot import encode_instrument
     from temsim.immutable_json import json_digest
+    from temsim.lens_pose import has_lens_pose, lens_pose_registration
     sample_z = float(state.sample.z_mm)
     recipes = getattr(state, "lens_field_map_descriptors", {})
     conservative = bool(recipes) and str(getattr(state, "simulation_mode", "custom")) not in {"ideal", "analytical"}
@@ -636,6 +637,8 @@ def incident_field_dependencies(state):
     for lens in state.lenses:
         if lens.key not in _POST_SAMPLE_PROJECTION_LENS_KEYS:
             continue  # Already retained by the upstream payload.
+        posed = has_lens_pose(state, lens.key)
+        registration = lens_pose_registration(state, lens.key) if posed else None
         support = None
         support_method = getattr(lens, "field_support_mm", None)
         if callable(support_method):
@@ -643,9 +646,17 @@ def incident_field_dependencies(state):
                 support = tuple(float(v) for v in support_method())
             except (ValueError, TypeError):
                 pass
-        if conservative or support is None or support[0] <= sample_z:
-            rows.append({"key": lens.key, "model_digest": json_digest(encode_instrument(lens)),
-                         "support_mm": support, "reason": "mapped/shared/unknown support" if conservative or support is None else "field overlaps incident region"})
+        if posed or conservative or support is None or support[0] <= sample_z:
+            row = {"key": lens.key, "model_digest": json_digest(encode_instrument(lens)),
+                   "support_mm": support, "reason": "posed spatial field" if posed else
+                   "mapped/shared/unknown support" if conservative or support is None else "field overlaps incident region"}
+            if registration is not None:
+                # A lens pose can bring the spatial field across the specimen
+                # even when its original mechanical centre remains downstream.
+                # Invalidate conservatively without loading or solving a map.
+                row["physical_pose"] = {"origin_global_m": registration.origin_global_m,
+                                        "rotation_local_to_global": registration.rotation_local_to_global}
+            rows.append(row)
     return {"schema": "incident-field-support-v1", "plane_z_mm": sample_z, "rows": rows,
             "coupled_recipes": recipes if conservative else {}}
 

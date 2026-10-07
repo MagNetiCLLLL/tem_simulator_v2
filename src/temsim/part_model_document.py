@@ -116,15 +116,39 @@ class PartModelDocument:
         self._commit_component_operation(candidate)
         return key
 
-    def place_component(self, key, center_z_mm, include_children=True):
+    def place_component(self, key, center_z_mm, include_children=True, *, physical_pose=None):
         """Translate module-local axial coordinates, optionally with children."""
         if key in SHARED_DEFLECTOR_HOSTS:
             raise ValueError(f"{key} uses shared hardware; place {SHARED_DEFLECTOR_HOSTS[key]} instead")
         candidate, keys = placed_component_document(
             self.document, key, center_z_mm, include_children=include_children,
         )
+        if physical_pose is not None:
+            part = next(part for part in candidate["parts"] if part["key"] == key)
+            self._set_physical_pose_values(part, physical_pose)
         self._commit_component_operation(candidate)
         return keys
+
+    @classmethod
+    def _set_physical_pose_values(cls, part, values):
+        from temsim.lens_pose import (
+            PHYSICAL_POSE_FIELDS, migrate_legacy_lens_pose,
+            supports_physical_lens_pose, validate_physical_lens_pose,
+        )
+        if not supports_physical_lens_pose(part):
+            raise ValueError("Edit the physical magnetic lens assembly to move its field")
+        if not isinstance(values, Mapping) or set(values) - set(PHYSICAL_POSE_FIELDS):
+            raise ValueError("Choose physical lens offsets in mm or rotations in mrad")
+        values = {field: cls._finite_dimension(value) for field, value in values.items()}
+        migrate_legacy_lens_pose(part)
+        part.update(values)
+        validate_physical_lens_pose(part)
+
+    def set_physical_pose(self, key, values):
+        """Stage one magnetic assembly pose, preserving its field excitation."""
+        part = deepcopy(self.part(key))
+        self._set_physical_pose_values(part, values)
+        self._commit_part(key, part)
 
     def copy_component_from(self, source, key, new_key, center_z_mm,
                             parent_key=None, include_children=True, *, name=None):
@@ -210,6 +234,10 @@ class PartModelDocument:
             raise ValueError(f"{path[1]} uses shared hardware; edit {host} to change its structure")
         part = deepcopy(self.part(path[1]))
         field = path[2]
+        from temsim.lens_pose import PHYSICAL_POSE_FIELDS, supports_physical_lens_pose
+        if len(path) == 3 and field in PHYSICAL_POSE_FIELDS and supports_physical_lens_pose(part):
+            self.set_physical_pose(path[1], {field: value})
+            return
         if field == "model_3d":
             from temsim.part_model_features import validate_model_3d
 
@@ -220,8 +248,8 @@ class PartModelDocument:
                 self._synchronize_custom_base_length(part)
             self._commit_part(path[1], part)
             return
-        if field not in part or not field.endswith(("_mm", "_um", "_nm", "_deg")):
-            raise ValueError("Choose an existing dimension in mm, µm, nm or degrees")
+        if field not in part or not field.endswith(("_mm", "_um", "_nm", "_deg", "_mrad")):
+            raise ValueError("Choose an existing dimension in mm, µm, nm, degrees or mrad")
         from temsim.optics.electron_gun.tip_assembly import is_tip_part
         if is_tip_part(part) and len(path) == 3:
             if isinstance(part[field], bool) or not isinstance(part[field], Real):

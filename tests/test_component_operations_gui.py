@@ -147,6 +147,33 @@ def test_place_global_converts_to_resolved_local_and_keeps_length(page, qtbot):
     assert page.session.part("custom_part")["local_center_z_mm"] == 150
 
 
+def test_lens_placement_has_mrad_controls_and_keeps_children_together(page, qtbot):
+    key = "intermediate_lens"
+    inherited_fields = {tuple(page.dimensions.item(row, 1).data(Qt.ItemDataRole.UserRole)): row
+                        for row in range(page.dimensions.rowCount())}
+    inherited_row = inherited_fields[("parts", key, "rotation_y_mrad")]
+    assert page.dimensions.item(inherited_row, 0).text().startswith("Parent lens:")
+    assert page.dimensions.item(inherited_row, 2).text() == "mrad"
+    page.select_part(key)
+    before = deepcopy(page.session.document)
+    source_bytes = page.session.path.read_bytes()
+    fields = {tuple(page.dimensions.item(row, 1).data(Qt.ItemDataRole.UserRole)): row
+              for row in range(page.dimensions.rowCount())}
+    row = fields[("parts", key, "rotation_y_mrad")]
+    assert page.dimensions.item(row, 2).text() == "mrad"
+    dialog = _dialog(qtbot, page, "place")
+    assert dialog.include_children.isChecked() and not dialog.include_children.isEnabled()
+    dialog.pose_values["offset_x_mm"].setText("0.04")
+    dialog.pose_values["rotation_y_mrad"].setText("-1.5")
+    assert "rotation XYZ (mrad)" in dialog.summary.text()
+    _confirm(qtbot, page, dialog)
+    assert page.session.part(key)["offset_x_mm"] == 0.04
+    assert page.session.part(key)["rotation_y_mrad"] == -1.5
+    assert page.session.path.read_bytes() == source_bytes
+    page.undo()
+    assert page.session.document == before
+
+
 def test_same_file_independent_copy_can_use_unsaved_source_and_undo(page, qtbot):
     part = _add(qtbot, page)
     original = deepcopy(part)

@@ -9,7 +9,12 @@ from temsim.physics.core import build_propagation_plan, propagate
 
 
 def test_sparse_plot_history_retains_the_physical_aperture_plane():
-    state = default_state()
+    # This is a pure drift fixture. A default instrument's extraction field
+    # acts in this interval even after round magnetic lenses are disabled.
+    state = SimpleNamespace(beam_voltage_kv=300., lenses=[], stigmators=[],
+        corrector_elements=[], projector_mode="diffraction",
+        equivalent_image_lenses_enabled=False, sample=SimpleNamespace(z_mm=20.),
+        acceleration_backend="CPU")
     state.step_mm = .8
     state.history_step_mm = 10.
     state.acceleration_enabled = False

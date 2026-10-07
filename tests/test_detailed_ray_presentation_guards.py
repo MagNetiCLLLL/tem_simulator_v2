@@ -171,4 +171,4 @@ def test_same_result_detailed_publication_clears_offsets_then_reference_playback
     view._scan_playback_time_changed(.5)
     assert view._scan_ray_offsets_m
     assert "scan animation off" not in view.heading.text()
-    assert view.heading.toolTip() == ""
+    assert view.heading.toolTip() == view.heading.text()

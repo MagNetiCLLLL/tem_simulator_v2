@@ -62,6 +62,9 @@ _RUNTIME_NAMES = frozenset({
     "_instrument_magnetic_query_upper_m",
     "_instrument_electric_end_mm",  # Canonical worker domain, derived from resolved mechanics.
     "_runtime_lens_field_provider_cache", "_field_provider_diagnostics",
+    "_runtime_posed_nonlinear_provider_cache",
+    "_lens_pose_registration_cache",
+    "_lens_pose_bore_cache",
     "_objective_plane_signature", "_equivalent_image_calibration_cache",
     "_tuning_cancelled",  # Worker cancellation callback, never a physical input.
     "_last_ray_device_receipt",  # Timing only; copied to result performance.

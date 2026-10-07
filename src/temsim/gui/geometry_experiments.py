@@ -32,7 +32,9 @@ class GeometryExperimentEditor(QScrollArea):
         form.addRow("Component key", self.part)
         self.dimension = QComboBox()
         self.dimension.setEditable(True)
-        self.dimension.addItems(("vacuum_inner_diameter_mm", "length_mm", "mechanical_bore_diameter_mm", "tip_radius_nm", "tip_cone_half_angle_deg"))
+        self.dimension.addItems(("vacuum_inner_diameter_mm", "length_mm", "mechanical_bore_diameter_mm",
+                                 "offset_x_mm", "offset_y_mm", "rotation_x_mrad", "rotation_y_mrad", "rotation_z_mrad",
+                                 "tip_radius_nm", "tip_cone_half_angle_deg"))
         form.addRow("Existing dimension", self.dimension)
         self.values = QLineEdit("4.0, 5.0, 6.0")
         form.addRow("Values (dimension units)", self.values)

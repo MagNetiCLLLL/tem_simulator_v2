@@ -14,12 +14,19 @@ def clip_recording_planes(state,z,x,y,alive,blocked_z,blocked_key):
 
     z=np.asarray(z,float);alive=np.asarray(alive,bool).copy();blocked_z=np.asarray(blocked_z,float).copy();blocked_key=list(blocked_key)
     x=np.asarray(x,float);y=np.asarray(y,float)
+    from temsim.physics.aperture_clipping import clip_posed_apertures, posed_aperture_registration
+    posed = [a for a in getattr(state, "apertures", [])
+             if getattr(a, "enabled", False) and getattr(a, "installed", True)
+             and float(a.z_mm) >= float(state.sample.z_mm)
+             and posed_aperture_registration(state, a) is not None]
+    posed_keys = {a.key for a in posed}
     candidates = [
         (float(aperture.z_mm), 0, aperture)
         for aperture in getattr(state, "apertures", [])
         if (
             bool(getattr(aperture, "enabled", False))
             and bool(getattr(aperture, "installed", True))
+            and aperture.key not in posed_keys
             and float(aperture.z_mm) >= float(state.sample.z_mm)
         )
     ]
@@ -68,5 +75,7 @@ def clip_recording_planes(state,z,x,y,alive,blocked_z,blocked_key):
             hit=reaches&_hit_mask(plane,xx,yy)
         alive[hit]=False;blocked_z[hit]=plane_z_mm
         for i in np.flatnonzero(hit):blocked_key[i]=str(plane.key)
+    alive, blocked_z, blocked_key = clip_posed_apertures(
+        state, posed, z, x, y, alive, blocked_z, blocked_key)
     alive = np.isnan(blocked_z)
     return alive,blocked_z,blocked_key

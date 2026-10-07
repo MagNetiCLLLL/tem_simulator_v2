@@ -34,8 +34,9 @@ def field_geometry_admission(state, binding, descriptor):
         raise ValueError("Unknown field geometry policy")
     geometry = json.loads(binding.canonical_geometry_json)["lens_assembly"]
     participating = {row["key"] for name in ("parts", "magnetostatic_neighbours") for row in geometry.get(name, ())}
+    from temsim.lens_pose import has_nonrigid_lens_cad
     unsupported = sorted(part.key for part in getattr(getattr(state, "_resolved_assembly", None), "parts", ())
-                         if part.key in participating and part.data.get("model_3d"))
+                         if part.key in participating and has_nonrigid_lens_cad(part.data))
     if unsupported and policy == "require_full_geometry":
         raise ValueError("Axisymmetric field solver cannot consume model_3d features/transforms on " + ", ".join(unsupported)
                          + "; explicitly choose authoritative_dimensions approximation or provide a matching 3D field model")

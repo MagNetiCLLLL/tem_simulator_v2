@@ -15,6 +15,28 @@ import numpy as np
 from temsim.physics.ray_integrator import canonical_rk4_step, canonical_rk4_step_with_time
 
 
+def magnetic_slope_derivative(fields, positions, slopes, charge_over_p):
+    """Sum genuine vector fields and lens-local paraxial analytical laws.
+
+    A nonzero placement must not silently add full-Lorentz cubic terms to a
+    lens whose unposed model is paraxial with a separately configured Cs.
+    """
+    result = np.zeros_like(slopes)
+    magnetic = np.zeros_like(positions)
+    for field in fields:
+        paraxial = getattr(field, "slope_derivative", None)
+        if callable(paraxial):
+            result += paraxial(positions, slopes, charge_over_p)
+        else:
+            magnetic += field.field_at_global_positions_t(positions)
+    ux, uy = slopes.T
+    bx, by, bz = magnetic.T
+    factor = charge_over_p*np.sqrt(1.+ux*ux+uy*uy)
+    result[:, 0] += factor*(uy*bz-(1.+ux*ux)*by+ux*uy*bx)
+    result[:, 1] += factor*((1.+uy*uy)*bx-ux*bz-ux*uy*by)
+    return result
+
+
 def vector_map_rk4(
     kx, ky, hn, hs, larmor_axis, inverse_momentum, cs_kick,
     thin_power, thin_rotation, step_m, x, tx, y, ty,
@@ -23,6 +45,7 @@ def vector_map_rk4(
     defer_nonfinite_until_clipping=False,
     step_operator=None,
     initial_time_s=None, inverse_speed=None,
+    posed_spherical_kicks=None,
 ):
     nr, ns, nc = x.size, save_index.size, checkpoint_index.size
     # Finite-difference transfer Jacobians need float64 even in saved history.
@@ -34,7 +57,7 @@ def vector_map_rk4(
     CT = np.empty((nc, nr), np.float64) if time is not None else None
     charge_over_p = -1.602176634e-19 * inverse_momentum
     magnetic_scale = reference_momentum[0] * inverse_momentum
-    supports = tuple((item, *item.field_map.field_support_mm)
+    supports = tuple((item, *item.field_support_mm)
                      for item in mapped_fields if item.scale != 0.0)
     for j in range(step_m.size + 1):
         tx, ty = tx - thin_power[j] * x, ty - thin_power[j] * y
@@ -45,6 +68,8 @@ def vector_map_rk4(
         tx, ty = tx + kickx[j], ty + kicky[j]
         radial = cs_kick[j] * (x*x + y*y)
         tx, ty = tx - radial*x, ty - radial*y
+        for kick in (posed_spherical_kicks or {}).get(j, ()):
+            x, tx, y, ty = kick.apply(x, tx, y, ty)
         if saved < ns and j == save_index[saved]:
             X[saved], TX[saved], Y[saved], TY[saved] = x, tx, y, ty
             if time is not None:
@@ -92,17 +117,14 @@ def vector_map_rk4(
                 # caller applies physical stops. Never submit them as XYZ map
                 # queries; a non-finite *pre-stop* state must still be rejected.
                 valid = np.all(np.isfinite(values), axis=0)
-                field = np.full((nr, 3), np.nan)
+                acceleration = np.full((nr, 2), np.nan)
                 if np.any(valid):
-                    field[valid] = sum((item.field_at_global_positions_t(pos[valid]) for item in active),
-                                       start=np.zeros((np.count_nonzero(valid), 3)))
+                    acceleration[valid] = magnetic_slope_derivative(active, pos[valid],
+                        np.column_stack((ux[valid], uy[valid])), charge_over_p[valid])
             else:
-                field = sum((item.field_at_global_positions_t(pos) for item in active),
-                            start=np.zeros((nr,3)))
-            bx, by, bz = field.T
-            factor = charge_over_p * np.sqrt(1.0 + ux*ux + uy*uy)
-            fx = factor * (uy*bz - (1.0+ux*ux)*by + ux*uy*bx)
-            fy = factor * ((1.0+uy*uy)*bx - ux*bz - ux*uy*by)
+                acceleration = magnetic_slope_derivative(active, pos,
+                    np.column_stack((ux, uy)), charge_over_p)
+            fx, fy = acceleration.T
             fx -= charge_over_p * dipole_by_t[d+stage]
             fy += charge_over_p * dipole_bx_t[d+stage]
             index = (a,b,c)[stage]

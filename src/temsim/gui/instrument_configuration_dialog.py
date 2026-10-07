@@ -87,6 +87,9 @@ class InstrumentConfigurationDialog(QDialog):
         # Configuration chooses whole units, never edits a component definition.
         self.review.edit_cell.hide()
         self.review.assembly_3d.edit_part.hide()
+        self.review.rotating_section.edit_part.hide()
+        self.review.rotating_section.follow_ray_diagram.setChecked(False)
+        self.review.rotating_section.follow_ray_diagram.hide()
         self.review.plot.setToolTip("Select hardware to highlight its assembly unit. Geometry is read-only here.")
         self.review.component_selected.connect(self.select_component)
         self.review.component_activated.connect(lambda key, _: self.select_component(key))
@@ -158,7 +161,7 @@ class InstrumentConfigurationDialog(QDialog):
         runtime = dict(self.review.assembly_3d._runtime_values)
         for key, values in energy_filter_render_values(state).items():
             runtime[key] = {**runtime.get(key, {}), **values}
-        self.review.assembly_3d.set_assembly(self._assembly, runtime)
+        self.review.set_assembly(self._assembly, runtime)
         self.review.display_result(SimpleNamespace(assembly=self._assembly,
             layout=state._resolved_optics_layout, state_snapshot=state))
         self._select_unit()

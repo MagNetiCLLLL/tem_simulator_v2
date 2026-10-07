@@ -344,8 +344,9 @@ class ColumnMediumTransport(MediumTransport):
             self.solid_specimen = state.sample
         self.node_radius = np.full(len(self.z), np.inf)
         self.interval_radius = np.full(len(self.z)-1, np.inf)
-        from temsim.physics.column_wall import _vacuum_segments
-        for segment in _vacuum_segments(state, self.z):
+        from temsim.physics.column_wall import _vacuum_segments, _partition_vacuum_segments
+        stationary, self.placed_bores = _partition_vacuum_segments(state, _vacuum_segments(state, self.z))
+        for segment in stationary:
             lo, hi = segment.start_z_mm, segment.end_z_mm
             radius = segment.inner_diameter_mm*.5*1e-3
             mask = (self.z >= lo-1e-9) & (self.z <= hi+1e-9)
@@ -362,6 +363,9 @@ class ColumnMediumTransport(MediumTransport):
         self.recording_keys = {p.key for p in getattr(state, "recording_planes", ())}
         self.plane_steps = {max(0, int(np.searchsorted(self.z, p, side="left"))-1)
                             for p in planes if self.z[0] <= p <= self.z[-1]}
+        from temsim.physics.aperture_clipping import posed_aperture_registration
+        self.has_posed_apertures = any(posed_aperture_registration(state, a) is not None
+            for a in state.apertures if a.enabled and getattr(a, "installed", True))
 
     def __call__(self, j, before, after):
         x0, tx0, y0, ty0 = before
@@ -389,7 +393,15 @@ class ColumnMediumTransport(MediumTransport):
             stop_z[outer] = self.z[j]+np.clip(frac[outer], 0, 1)*(self.z[j+1]-self.z[j])
         for i in np.flatnonzero(outside0 | outer | shoulder):
             stop_keys[i] = "column_wall"
-        if j in self.plane_steps:
+        if self.placed_bores:
+            from temsim.physics.column_wall import _posed_wall_stop_z
+            posed_stops = _posed_wall_stop_z(self.z[j:j+2], np.stack((x0, x))*1e3,
+                                            np.stack((y0, y))*1e3, self.placed_bores)
+            hit = was_alive & np.isfinite(posed_stops) & (~np.isfinite(stop_z) | (posed_stops < stop_z))
+            stop_z[hit] = posed_stops[hit]
+            for i in np.flatnonzero(hit):
+                stop_keys[i] = "column_wall"
+        if j in self.plane_steps or self.has_posed_apertures:
             zz = self.z[j:j+2]
             xx, yy = np.stack((x0, x)), np.stack((y0, y))
             al = was_alive & ~np.isfinite(stop_z)

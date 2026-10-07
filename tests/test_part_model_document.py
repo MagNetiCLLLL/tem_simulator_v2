@@ -86,6 +86,82 @@ def test_invalid_input_does_not_mutate_draft(document, value):
     assert document.document == before
 
 
+def test_physical_lens_pose_virtual_defaults_roundtrip_and_legacy_migration(document):
+    import math
+    from temsim.lens_pose import PHYSICAL_POSE_FIELDS
+    # Exercise an old file with no canonical pose assignments, even though
+    # newly bundled templates now expose explicit zero defaults.
+    lines = document.path.read_text(encoding="utf-8").splitlines()
+    document.path.write_text("\n".join(line for line in lines
+        if line.partition("=")[0].strip() not in PHYSICAL_POSE_FIELDS) + "\n", encoding="utf-8")
+    document = PartModelDocument(document.path)
+    key = "intermediate_lens"
+    before = deepcopy(document.part(key))
+    document.set_model_3d(key, {"schema_version": 1, "base": {"kind": "existing"},
+        "transform": {"scale_xy": [1.0, 1.0], "offset_mm": [0.03, -0.02, 0.04],
+                      "rotation_deg": [0.1, -0.2, 0.3]}, "features": []})
+    document.set_dimension(("parts", key, "rotation_y_mrad"), -1.25)
+    part = document.part(key)
+    assert part["rotation_x_mrad"] == pytest.approx(math.radians(0.1) * 1000)
+    assert part["rotation_y_mrad"] == -1.25
+    assert part["offset_x_mm"] == 0.03
+    assert part["offset_z_mm"] == 0.04
+    assert part["model_3d"]["transform"] == {"scale_xy": [1.0, 1.0]}
+    assert all(part[name] == before[name] for name in before if name not in PHYSICAL_POSE_FIELDS)
+    document.save()
+    reopened = PartModelDocument(document.path)
+    assert reopened.part(key) == document.part(key)
+    assert reopened.part(key)["rotation_y_mrad"] == -1.25
+
+
+@pytest.mark.parametrize("value", [True, "2.5", float("nan"), float("inf")])
+def test_invalid_physical_lens_pose_is_atomic(document, value):
+    before = deepcopy(document.document)
+    with pytest.raises(ValueError, match="finite"):
+        document.set_physical_pose("intermediate_lens", {"rotation_x_mrad": value})
+    assert document.document == before
+    invalid = deepcopy(before)
+    next(part for part in invalid["parts"] if part["key"] == "intermediate_lens")["rotation_x_mrad"] = value
+    with pytest.raises(ValueError, match="finite"):
+        module_manifest.validate_document(invalid)
+
+
+def test_lens_pose_and_axial_placement_are_one_undoable_operation(document):
+    before = deepcopy(document.document)
+    key = "intermediate_lens"
+    document.place_component(key, document.part(key)["local_center_z_mm"],
+                             physical_pose={"offset_x_mm": 0.025, "rotation_y_mrad": 2.5})
+    assert document.part(key)["offset_x_mm"] == 0.025
+    assert document.part(key)["rotation_y_mrad"] == 2.5
+    document.undo()
+    assert document.document == before
+    document.redo()
+    assert document.part(key)["rotation_y_mrad"] == 2.5
+
+
+def test_manifest_editor_exposes_zero_pose_and_preserves_legacy_when_one_angle_changes():
+    import math
+    from temsim.lens_pose import PHYSICAL_POSE_FIELDS
+    from temsim.manifest_editor import ManifestEditor, ManifestTarget, _complete_part_length_updates
+    editor = ManifestEditor(INSTRUMENT_CONFIG_ROOT)
+    fields = {field.path[-1]: field for field in editor.fields(ManifestTarget(MODULE, "intermediate_lens"))}
+    assert fields["rotation_x_mrad"].editable
+    assert fields["rotation_x_mrad"].value == 0.0
+    assert fields["rotation_x_mrad"].meaning.category == "placement"
+    source = module_manifest.read_document(INSTRUMENT_CONFIG_ROOT / MODULE)
+    part = next(part for part in source["parts"] if part["key"] == "intermediate_lens")
+    for name in PHYSICAL_POSE_FIELDS:
+        part.pop(name, None)
+    part["model_3d"] = {"schema_version": 1, "transform": {
+        "offset_mm": [0.03, 0.02, -0.01], "rotation_deg": [0.1, 0.2, 0.3], "scale_xy": [1.0, 1.0]}}
+    prefix = ("parts", "intermediate_lens")
+    changes = _complete_part_length_updates(source, {(*prefix, "rotation_y_mrad"): 2.5})
+    assert changes[(*prefix, "rotation_x_mrad")] == pytest.approx(math.radians(0.1) * 1000)
+    assert changes[(*prefix, "rotation_y_mrad")] == 2.5
+    assert changes[(*prefix, "offset_x_mm")] == 0.03
+    assert changes[(*prefix, "model_3d")]["transform"] == {"scale_xy": [1.0, 1.0]}
+
+
 def test_existing_array_dimensions_are_updated_by_index(document):
     key = "intermediate_lens_upper_pole"
     field = "pole_root_fillet_radius_range_mm"

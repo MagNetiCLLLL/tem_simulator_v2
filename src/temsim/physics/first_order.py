@@ -34,7 +34,7 @@ def _trace_basis(state, source, stop, *, save_z_mm=(), maximum_step_mm=None, eve
     Analytic multipoles are linearised on the column axis. Mapped fields use
     small central differences. These diagnostic bases are never a beam source.
     """
-    from temsim.physics.lens_field_provider import active_mapped_providers
+    from temsim.physics.lens_field_provider import active_vector_providers
     from temsim.physics.instrument_magnetic import active_column_events, events_overlapping_interval
     # Normal observers trace the actual captured affine orbit. An explicitly
     # supplied empty tuple is reserved for an undriven mathematical response.
@@ -42,7 +42,7 @@ def _trace_basis(state, source, stop, *, save_z_mm=(), maximum_step_mm=None, eve
         active_column_events(state) if events is None else events, source, stop)
     # A physical electrostatic provider has finite radial bounds and can be
     # nonlinear off axis. Unit-metre basis rays are not admissible queries.
-    vector_maps = bool(active_mapped_providers(state) or getattr(state, "electron_gun", None) is not None)
+    vector_maps = bool(active_vector_providers(state) or getattr(state, "electron_gun", None) is not None)
     steps = np.array((1e-8, 1e-8, 1e-6, 1e-6)) if vector_maps else np.ones(4)
     basis = np.column_stack((np.zeros(4), np.diag(steps)))
     if vector_maps:

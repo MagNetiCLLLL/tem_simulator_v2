@@ -136,6 +136,19 @@ class ComponentDialog(QDialog):
         self.center = QLineEdit(format(float(self.part.get("local_center_z_mm", 0)), ".15g"))
         self.center.setObjectName("componentCenterZ")
         form.addRow("Centre Z (mm)", self.center)
+        from temsim.lens_pose import physical_pose_values, supports_physical_lens_pose
+        self.pose_values = {}
+        if action == "place" and supports_physical_lens_pose(self.part):
+            for field, value in physical_pose_values(self.part).items():
+                unit = "mrad" if field.endswith("_mrad") else "mm"
+                label = ("Rotation " if unit == "mrad" else "Offset ") + field.split("_")[1].upper()
+                editor = QLineEdit(format(value, ".15g"))
+                editor.setObjectName("component_" + field)
+                editor.setToolTip("Rigid physical lens placement; its magnetic field and child components follow. "
+                                  "Rotations use right-handed X, then Y, then Z axes about the lens centre. "
+                                  "Field strength remains controlled by excitation.")
+                self.pose_values[field] = editor
+                form.addRow(f"{label} ({unit})", editor)
         self.coordinate_note = QLabel()
         self.coordinate_note.setWordWrap(True)
         form.addRow(self.coordinate_note)
@@ -147,6 +160,9 @@ class ComponentDialog(QDialog):
         self.include_children.setObjectName("componentIncludeChildren")
         self.include_children.setChecked(True)
         self.include_children.setVisible(action != "new")
+        if self.pose_values:
+            self.include_children.setEnabled(False)
+            self.include_children.setToolTip("A magnetic lens is placed together with its child hardware and field.")
         form.addRow(self.include_children)
         self.summary = QLabel()
         self.summary.setObjectName("componentOperationSummary")
@@ -179,6 +195,8 @@ class ComponentDialog(QDialog):
         self.parent_part.currentIndexChanged.connect(self._update_summary)
         self.include_children.toggled.connect(self._update_summary)
         for editor in self.values.values():
+            editor.textChanged.connect(self._update_summary)
+        for editor in self.pose_values.values():
             editor.textChanged.connect(self._update_summary)
         self._target_changed()
         self._shape_changed()
@@ -288,6 +306,9 @@ class ComponentDialog(QDialog):
         result = dict(action=self.action, target_path=target, key=key, name=name,
                       center_z_mm=center, coordinate_system=mode, module_origin_z_mm=origin,
                       parent_key=self.parent_part.currentData(), include_children=self.include_children.isChecked())
+        if self.pose_values:
+            result["physical_pose"] = {field: self._number(editor.text(), field)
+                                       for field, editor in self.pose_values.items()}
         if self.action == "new":
             result["shape"] = self.shape.currentData()
             for field, editor in self.values.items():
@@ -313,6 +334,13 @@ class ComponentDialog(QDialog):
                 start = float(self.part["local_start_z_mm"]) + shift
                 end = float(self.part["local_end_z_mm"]) + shift
             position += f".\nComponent envelope: local Z {start:.12g} to {end:.12g} mm."
+            if self.pose_values:
+                pose = values["physical_pose"]
+                position += ("\nPhysical lens offset XYZ (mm): " + ", ".join(
+                    f"{pose['offset_' + axis + '_mm']:.9g}" for axis in "xyz") +
+                    "; rotation XYZ (mrad): " + ", ".join(
+                    f"{pose['rotation_' + axis + '_mrad']:.9g}" for axis in "xyz") +
+                    ". Magnetic field and child hardware follow this placement.")
             parent = next((part for part in self._target_parts if part["key"] == values["parent_key"]), None)
             if parent is not None:
                 position += (f"\nParent {parent.get('name', parent['key'])}: local Z "

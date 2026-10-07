@@ -22,6 +22,18 @@ class Label:
         pass
 
 
+class HeadingLabel(Label):
+    def __init__(self):
+        self._text = ""
+        self.tooltip = ""
+
+    def setText(self, text):
+        self._text = text
+
+    def text(self):
+        return self._text
+
+
 class PanelSpy:
     def __init__(self, product=None):
         self.product = product
@@ -84,7 +96,9 @@ def workspace():
             tof=SimpleNamespace(invalidate=noop))),
         _high_accuracy_result=None, _high_accuracy_current=False,
         _sample_region_result=None, _scan_ray_paths=None,
-        result_readout=PanelSpy(), ray_source_status=Label(), heading=Label(),
+        _receiver_scan_source=None, _receiver_scan_pending_source=None,
+        _receiver_scan_active=False, _receiver_scan_time_s=None,
+        result_readout=PanelSpy(), ray_source_status=Label(), heading=HeadingLabel(),
         hardware_tuning=SimpleNamespace(publish_result=noop, mark_result_stale=noop),
         selected_plane_readout=SimpleNamespace(set_result=noop),
         conjugate_planes=SimpleNamespace(set_result=noop),
@@ -95,7 +109,7 @@ def workspace():
         _update_sample_region_control_availability=noop, _update_projection_text=noop,
     )
     for name in ("probe_aberrations", "image_aberrations", "optical_transfer", "sample_page",
-                 "wave_imaging", "transport_adjustment_readout"):
+                 "wave_imaging", "transport_adjustment_readout", "receiver_imaging"):
         setattr(view, name, PanelSpy())
     view.energy_filter = PanelSpy("energy_filter")
     view.eds_page = PanelSpy("specimen_interactions")
@@ -106,7 +120,9 @@ def workspace():
         page.calculation_bar = SimpleNamespace(mark_stale=noop, set_result_available=noop)
     view.sample_interactions_3d.calculate_paths = SimpleNamespace(setEnabled=noop)
     view.mark_high_accuracy_stale = lambda: VisualizationWorkspace.mark_high_accuracy_stale(view)
-    view._prepare_scan_ray_playback = MethodType(VisualizationWorkspace._prepare_scan_ray_playback, view)
+    for name in ("_prepare_scan_ray_playback", "_publish_scan_control_result",
+                 "_sync_receiver_scan_playback"):
+        setattr(view, name, MethodType(getattr(VisualizationWorkspace, name), view))
     return view
 
 

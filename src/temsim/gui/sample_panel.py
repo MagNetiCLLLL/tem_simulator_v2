@@ -849,6 +849,10 @@ class SamplePage(QWidget):
         self.mode.setObjectName("sampleModeControl")
         self.mode.addItem("Vacuum sample", "vacuum")
         self.mode.addItem("Imported CIF", "atomic")
+        self.mode.setToolTip(
+            "Choose whether calculations use vacuum or the imported structure. "
+            "Vacuum keeps the CIF for later use. Load or replace it with Open CIF."
+        )
         self.envelope_shape = QComboBox()
         self.envelope_shape.setObjectName("sampleEnvelopeShapeControl")
         self.envelope_shape.addItem("Circular disk", "disk")
@@ -887,7 +891,7 @@ class SamplePage(QWidget):
         real_layout = QVBoxLayout(real)
         source_form = QFormLayout()
         source_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        self.source_note = QLabel("Vacuum sample. Import a CIF / MCIF file to add a material sample.")
+        self.source_note = QLabel()
         self.source_note.setWordWrap(True)
         self.source_note.setObjectName("sampleRealSourceNote")
         self.source_note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -897,6 +901,9 @@ class SamplePage(QWidget):
         self.cif_path.setObjectName("sampleCifPath")
         browse = QPushButton("Open CIF...")
         browse.setObjectName("sampleImportCif")
+        browse.setToolTip(
+            "Load a CIF / MCIF file without changing Structure source or Holder."
+        )
         browse.clicked.connect(self._browse_cif)
         self.cif_browse = browse
         self.cif_path.editingFinished.connect(self._cif_edited)
@@ -1547,10 +1554,6 @@ class SamplePage(QWidget):
         if self._updating or self._state is None:
             return
         mode = str(self.mode.currentData())
-        if mode == "atomic" and not self._state.sample.cif_path:
-            self._browse_cif()
-            self.set_state(self._state)
-            return
         self._state.sample.specimen_mode = mode
         self._state.sample.inserted = mode == "atomic"
         self.set_state(self._state)
@@ -1567,14 +1570,20 @@ class SamplePage(QWidget):
     def _update_mode_controls(self):
         atomic = str(self.mode.currentData()) == "atomic"
         self.inserted.setEnabled(atomic)
-        # Import remains available in vacuum; selecting a valid file activates it.
+        # Loading and activating a structure are separate user choices.
         self.cif_source_widget.setEnabled(True)
-        path = self._structure_path()
-        self.apply_zone.setEnabled(bool(path))
-        detail = (f"Structure: {path}" if path else
-                  "Vacuum sample. Import a CIF / MCIF file to add a material sample.")
-        self.source_note.setText(f"Structure: {Path(path).name}" if path else detail)
-        self.source_note.setToolTip(detail)
+        path = str(self._state.sample.cif_path).strip() if self._state else ""
+        self.apply_zone.setEnabled(atomic and bool(path))
+        if atomic:
+            note = (f"Structure: {Path(path).name}" if path else
+                    "Imported CIF selected. Use Open CIF to load a structure before calculating.")
+        elif path:
+            note = (f"CIF retained: {Path(path).name}. Vacuum sample is active; "
+                    "select Imported CIF to use this structure.")
+        else:
+            note = "Vacuum sample is active. Open CIF can load a structure for later use."
+        self.source_note.setText(note)
+        self.source_note.setToolTip(f"{note}\n{path}" if path else note)
 
     def _update_wave_controls(self):
         illumination = str(
@@ -1748,8 +1757,6 @@ class SamplePage(QWidget):
                 self.set_state(self._state)
                 return
         self._state.sample.cif_path = path
-        self._state.sample.specimen_mode = "atomic" if path else "vacuum"
-        self._state.sample.inserted = bool(path)
         self.set_state(self._state)
         self._changed("sample.cif_path")
 

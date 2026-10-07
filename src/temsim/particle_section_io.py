@@ -282,6 +282,7 @@ def section_request_signatures(signatures, request):
 
 
 def _data_classes():
+    from temsim.physics.posed_aberrations import FrozenLensAberrationKick
     from temsim.physics.particle_sections import ParticleSectionCheckpoint, ParticleSectionSegment, MaterialSectionCache
     from temsim.physics.simulation import Simulation, Branch
     from temsim.physics.core import AxialPropagationPlan, PropagationCheckpoints
@@ -289,7 +290,7 @@ def _data_classes():
         GunTraceResult, GunExitBundle, GunPlaneArrival, GunEqualTimeHistory,
     )
     from temsim.physics.lens_field_provider import (
-        FrozenMappedField, MagneticFieldMap, CoordinateRegistration, FieldMapProvenance,
+        FrozenMappedField, FrozenAnalyticField, MagneticFieldMap, CoordinateRegistration, FieldMapProvenance,
     )
     from temsim.specimen.elastic_transport import (
         ElasticTransportResult, ElasticTerminalBundle, ElasticTrajectory,
@@ -326,8 +327,8 @@ def _data_classes():
     from temsim.diagnostics import OpticalTransferRecord
     return {cls.__name__: cls for cls in (
         ParticleSectionCheckpoint, ParticleSectionSegment, Simulation, Branch,
-        AxialPropagationPlan, PropagationCheckpoints, GunTraceResult, GunExitBundle,
-        GunPlaneArrival, GunEqualTimeHistory, FrozenMappedField, MagneticFieldMap,
+        AxialPropagationPlan, PropagationCheckpoints, GunTraceResult, GunExitBundle, FrozenLensAberrationKick,
+        GunPlaneArrival, GunEqualTimeHistory, FrozenMappedField, FrozenAnalyticField, MagneticFieldMap,
         CoordinateRegistration, FieldMapProvenance, MaterialSectionCache,
         ElasticTransportResult, ElasticTerminalBundle, ElasticTrajectory,
         ElasticScatterEvent, ElasticMaterialFlight, RealInteractionDistribution,
@@ -502,7 +503,10 @@ def _unpack(value, arrays, types, depth=0, _records=None, _definitions=None):
         if (cls is types.get("AxialPropagationPlan") and isinstance(value["fields"], dict)
                 and not _PLAN_ELECTRIC_FIELDS <= value["fields"].keys()):
             raise ValueError("Archived axial plan lacks the current electric-field identity; historical viewing only")
-        if not isinstance(value["fields"], dict) or set(value["fields"]) != allowed:
+        optional_legacy = {"posed_spherical_kicks"} if cls is types.get("AxialPropagationPlan") else set()
+        if (not isinstance(value["fields"], dict)
+                or set(value["fields"]) - allowed
+                or allowed - set(value["fields"]) - optional_legacy):
             raise ValueError("Unknown or missing current section data fields")
         record_fields = {k: decode(v) for k, v in value["fields"].items()}
         if cls is types.get("AxialPropagationPlan") and record_fields["electric_field"] is not None:

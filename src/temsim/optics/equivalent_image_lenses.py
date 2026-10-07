@@ -74,6 +74,11 @@ def equivalent_image_lenses_enabled(state) -> bool:
 
 
 def equivalent_image_maps_supported(state) -> bool:
+    from temsim.lens_pose import has_lens_pose
+    if any(has_lens_pose(state, key) for key in IMAGE_LENS_KEYS):
+        # The coaxial thin-lens reduction cannot represent a tilted/decentred
+        # magnetic axis. Keep the actual distributed vector fields instead.
+        return False
     return all(supports_axisymmetric_reduction(provider.field_map)
                for provider in active_mapped_providers(state)
                if provider.lens_key in IMAGE_LENS_KEYS)

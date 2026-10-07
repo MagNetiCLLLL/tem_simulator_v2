@@ -127,7 +127,7 @@ def test_rays_ignores_optional_sample_readouts_without_rewriting_snapshot(case):
     assert result.workflow == result.performance["workflow"] == "rays"
 
 
-@pytest.mark.parametrize("scope", ["sample", "eds", "stem", "energy_filter", "sample_region"])
+@pytest.mark.parametrize("scope", ["sample", "eds", "stem", "receiver", "energy_filter", "sample_region"])
 def test_dependent_page_requires_executed_ray_prerequisite(case, scope):
     with pytest.raises(ValueError, match="Run Ray Diagram"):
         p.calculate(case.state, workflow=scope)
@@ -199,6 +199,77 @@ def test_stem_raster_computes_frame_but_not_eds(case):
     assert [row[0] for row in c.calls] == ["interactions", "downstream", "scan_geometry", "scan_paths", "stem"]
     assert result.stem_scan is not None
     assert result.specimen_interactions.eds_spectrum is None
+
+
+def test_receiver_calculates_executed_material_without_optional_readouts(case):
+    c = case
+    # Paused wave controls are unrelated to this explicit particle readout.
+    c.state.sample.wave_enabled = c.state.sample.stem_wave_enabled = True
+    rays = p.calculate(c.state, workflow="rays")
+    c.calls.clear()
+    result = p.calculate(c.state, workflow="receiver", existing_result=rays)
+    assert [row[0] for row in c.calls] == ["interactions", "downstream"]
+    assert c.calls[0][1] == frozenset({O.ELASTIC_TRANSPORT, O.STOCHASTIC_INELASTIC})
+    assert result.specimen_exit is not None
+    assert result.specimen_interactions.eds_spectrum is None
+    assert result.wave_imaging is result.stem_scan is result.particle_signals is None
+    assert result.workflow == result.performance["workflow"] == "receiver"
+    assert result.simulation.metrics["sample_scattering_applied"]
+    assert {"column", "incident"} <= result.reused_products
+
+
+def test_receiver_reuses_validated_material_exit_from_sample_page(case):
+    c = case
+    rays = p.calculate(c.state, workflow="rays")
+    sample = p.calculate(c.state, workflow="sample", existing_result=rays)
+    c.calls.clear()
+    result = p.calculate(c.state, workflow="receiver", existing_result=sample)
+    assert [row[0] for row in c.calls] == ["interactions"]
+    assert result.specimen_exit is sample.specimen_exit
+    assert result.specimen_interactions.elastic_transport is sample.specimen_interactions.elastic_transport
+    assert {"column", "incident", "elastic", "sample_downstream"} <= result.reused_products
+
+
+def test_receiver_scan_geometry_does_not_require_stem_acquisition(case):
+    c = case
+    c.state.ac_deflector.enabled = c.state.ac_deflector.scan_enabled = True
+    c.state.sample.stem_image_enabled = False
+    rays = p.calculate(c.state, workflow="rays")
+    c.calls.clear()
+    result = p.calculate(c.state, workflow="receiver", existing_result=rays)
+    assert [row[0] for row in c.calls] == ["interactions", "downstream", "scan_geometry"]
+    assert result.scan_geometry is not None and result.scan_ray_paths is None
+    assert result.stem_scan is result.particle_signals is None
+    assert "scan_geometry" in result.calculated_products
+    assert "scan_ray_paths" not in result.calculated_products
+
+
+def test_receiver_vacuum_has_no_specimen_scattering_even_with_loaded_cif(case):
+    c = case
+    c.state.sample.specimen_mode = "vacuum"
+    c.state.sample.inserted = False
+    assert c.state.sample.cif_path
+    rays = p.calculate(c.state, workflow="rays")
+    c.calls.clear()
+    result = p.calculate(c.state, workflow="receiver", existing_result=rays)
+    assert c.calls == []
+    assert result.specimen_exit is result.specimen_interactions is None
+    assert not result.simulation.metrics["sample_scattering_applied"]
+    assert result.simulation.metrics["sample_scattering_model"] == "vacuum"
+
+
+def test_receiver_retains_existing_compatible_scan_products_without_rebuilding(case):
+    c = case
+    c.state.ac_deflector.enabled = c.state.ac_deflector.scan_enabled = True
+    rays = p.calculate(c.state, workflow="rays")
+    stem = p.calculate(c.state, workflow="stem", existing_result=rays)
+    c.calls.clear()
+    result = p.calculate(c.state, workflow="receiver", existing_result=stem)
+    assert [row[0] for row in c.calls] == ["interactions"]
+    assert result.scan_geometry is stem.scan_geometry
+    assert result.scan_ray_paths is stem.scan_ray_paths
+    assert {"scan_geometry", "scan_ray_paths"} <= result.reused_products
+    assert not {"scan_geometry", "scan_ray_paths", "stem"} & result.calculated_products
 
 
 def test_scan_change_reexecutes_incident_before_material_and_stem(case, monkeypatch):

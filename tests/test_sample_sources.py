@@ -45,6 +45,35 @@ def test_imported_material_and_vacuum_preserve_incident_beam_identity():
     assert not specimen_interactions_active(state.sample)
 
 
+@pytest.mark.parametrize("inserted", [False, True])
+def test_vacuum_retained_cif_does_not_add_ray_scattering_or_file_dependencies(tmp_path, inserted):
+    from temsim.specimen.inelastic import real_inelastic_distribution, real_inelastic_ray_branches
+
+    state = default_state()
+    state.sample.inserted = inserted
+    expected = real_inelastic_distribution(state)
+    before = calculation_signatures(state)
+    # Vacuum must not even open the dormant source, including a moved file.
+    state.sample.cif_path = str(tmp_path / "retained-but-moved.cif")
+    validate_sample_source(state.sample)
+    actual = real_inelastic_distribution(state)
+    assert actual == expected
+    branches = real_inelastic_ray_branches(actual, ray_count=3)
+    assert branches == real_inelastic_ray_branches(expected, ray_count=3)
+    branch, = branches
+    assert branch.name == "000" and branch.probability == 1.0
+    assert branch.kick_x_rad == branch.kick_y_rad == branch.energy_loss_ev == 0.0
+    assert actual.absorbed_probability == 0.0
+    scene = SpecimenScene.from_state(state, include_eds_materials=True)
+    assert scene.is_vacuum and not scene.structure_available
+    assert scene.sample_material is scene.support_material is None
+    assert calculation_signatures(state)["incident"] == before["incident"]
+    assert not any(row.role.startswith("specimen:") for row in capture_external_input_identities(state))
+    restored = State.from_dict(state.to_dict())
+    assert restored.sample.cif_path == state.sample.cif_path
+    assert active_cif_path(restored.sample) == ""
+
+
 def test_inserted_unconfigured_material_is_rejected_before_page_work():
     from temsim.simulation_workflow import calculate_workflow
     state = default_state()

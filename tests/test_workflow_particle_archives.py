@@ -108,9 +108,10 @@ def test_vacuum_result_does_not_claim_specimen_interactions(optical_result):
     assert not summary["specimen_transport_completed"]
 
 
-def test_actual_material_products_create_material_restart_and_scope(optical_result, monkeypatch):
+@pytest.mark.parametrize("scope", ["sample", "receiver"])
+def test_actual_material_products_create_material_restart_and_scope(optical_result, monkeypatch, scope):
     result = optical_result
-    result.workflow = "sample"
+    result.workflow = scope
     result.simulation.metrics["optical_tuning"] = False
     result.specimen_interactions = SimpleNamespace(
         elastic_transport=object(), inelastic_distribution=object(), eds_spectrum=None,

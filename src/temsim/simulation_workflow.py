@@ -324,17 +324,22 @@ def calculate_workflow(state, *, workflow, progress_callback=None,
             result.specimen_interactions = interactions
             result.wave_imaging = interactions.wave_imaging
             calculated.add("wave")
-    if workflow == "stem":
+    if workflow in {"stem", "receiver"}:
         raster = bool(state.ac_deflector.enabled and state.ac_deflector.scan_enabled
-                      and getattr(state.sample, "stem_image_enabled", True))
+                      and (workflow == "receiver"
+                           or getattr(state.sample, "stem_image_enabled", True)))
         if raster:
             if scan_geometry is None:
                 result.scan_geometry = p.calculate_scan_geometry(state)
                 calculated.add("scan_geometry")
-            if scan_paths is None:
+            if workflow == "stem" and scan_paths is None:
                 result.scan_ray_paths = p.calculate_scan_ray_paths(state, simulation)
                 calculated.add("scan_ray_paths")
-            if stem is None:
+            # Camera/screen reception needs scan displacement geometry, not a
+            # full-column playback basis, per-pixel STEM acquisition or a
+            # coherent-wave source. Its image is derived from the accepted
+            # executed particle products and recording-plane displacements.
+            if workflow == "stem" and stem is None:
                 result.stem_scan = p.calculate_stem_scan_frame(state, simulation,
                     specimen_interactions=interactions, geometric_specimen_exit=specimen_exit,
                     geometric_specimen_exit_signature=signatures["sample_downstream"],

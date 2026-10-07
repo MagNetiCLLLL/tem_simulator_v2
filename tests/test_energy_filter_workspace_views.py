@@ -7,6 +7,7 @@ from PySide6.QtCore import QSettings
 
 from temsim.assembly_catalog import AssemblyCatalog, AssemblySelection
 from temsim.gui.diagnostic_tabs import EnergyFilterView, PhysicalLayoutView
+from temsim.gui.energy_filter_outputs import EnergyFilterOutputsView
 from temsim.gui.instrument_configuration_dialog import InstrumentConfigurationDialog, UNITS
 from temsim.gui.visualization import VisualizationWorkspace
 from temsim.optics.column import default_state
@@ -31,17 +32,21 @@ def _result(state, assembly):
                            calculated_products=frozenset({"energy_filter"}))
 
 
-def test_branch_workspace_tabs_share_results_selection_and_staleness(qtbot, filter_context):
+def test_branch_workspace_separates_structure_rays_outputs_and_shares_results(qtbot, filter_context):
     _, state, assembly = filter_context
     result = _result(state, assembly)
     workspace = VisualizationWorkspace()
     qtbot.addWidget(workspace)
     owner, rays = workspace.energy_filter, workspace.energy_filter_rays
     structure = workspace.physical_layout.energy_filter_structure
-    assert len({id(owner.plot), id(rays.plot), id(structure.plot)}) == 3
+    assert isinstance(owner, EnergyFilterOutputsView)
+    assert rays.plot is not structure.plot
     assert workspace.ray_result_tabs.tabText(workspace.ray_result_tabs.indexOf(rays)) == "Energy Filter rays"
     assert workspace.physical_layout.tabs.tabText(workspace.physical_layout.tabs.indexOf(structure)) == "Energy Filter"
-    assert [owner.output_tabs.tabText(i) for i in range(3)] == ["Physical + rays", "EELS spectrum", "EFTEM image"]
+    assert owner.output_tabs.count() == 2
+    assert [owner.output_tabs.tabText(i) for i in range(2)] == ["EELS spectrum", "EFTEM image"]
+    for attribute in ("plot", "fit_all", "_ray_items", "component_selected"):
+        assert not hasattr(owner, attribute)
     for mirror in (rays, structure):
         assert not hasattr(mirror, "output_tabs")
         assert not hasattr(mirror, "calculate_button")
@@ -50,25 +55,42 @@ def test_branch_workspace_tabs_share_results_selection_and_staleness(qtbot, filt
     requests, selected = [], []
     workspace.calculation_requested.connect(requests.append)
     workspace.component_selected.connect(selected.append)
-    # Existing ray-scope publication may carry a cached or freshly executed
-    # filter product. Both routes must publish the identical object to the mirror.
+    # Ray and output views consume the identical accepted product without
+    # creating another calculation or rendering a second copy of the rays.
     workspace._display_ray_scope_products(result, "High accuracy")
     workspace.physical_layout.display_result(result)
     assert owner._result is rays._result is structure._result is result
     np.testing.assert_array_equal(rays._ray_items[0].getData()[0], result.energy_filter.paths_u_mm[0])
-    assert len(owner._ray_items) == len(rays._ray_items) == 1
+    assert len(rays._ray_items) == 1
+    assert not rays._multipole_housing_items
+    assert not rays._prism_clear_aperture_items
+    assert not rays._device_body_items
+    assert len(rays._reference_plane_items) == 4
+    assert rays._multipole_centres is not None
+    assert rays._device_centres is not None
     assert not structure._ray_items
     assert "Structure only" in structure.summary.text()
     assert len(structure._multipole_housing_items) == 20
     assert len(structure._device_body_items) == 12
 
     key = "energy_filter_multipole_04"
+    other_key = "energy_filter_slit"
+    workspace.set_energy_filter_components(
+        ((other_key, "Energy slit"), (key, "Multipole 4")), current_key=other_key
+    )
     rays._component_clicked(None, [SimpleNamespace(data=lambda: key)])
     assert selected == [key]
     assert all(view._selected_key == key and view._selection_item is not None
-               for view in (owner, rays, structure))
+               for view in (rays, structure))
+    assert workspace.energy_filter_component_selector.currentData() == key
+    structure._component_clicked(None, [SimpleNamespace(data=lambda: other_key)])
+    assert selected == [key, other_key]
+    assert workspace.energy_filter_component_selector.currentData() == other_key
+    assert all(view._selected_key == other_key for view in (rays, structure))
     workspace.ray_result_tabs.setCurrentWidget(rays)
     workspace.physical_layout.tabs.setCurrentWidget(structure)
+    owner.output_tabs.setCurrentIndex(1)
+    owner.output_tabs.setCurrentIndex(0)
     assert not requests
 
     retained_curve = rays._ray_items[0]
@@ -99,6 +121,10 @@ def test_filter_structure_is_available_in_configuration_review(qtbot, tmp_path, 
     assert structure._result is None
     assert not structure._multipole_housing_items
     assert review.assembly_3d.mesh_builds == 0
+    assert review.rotating_section.mesh_builds == 0
+    assert review.rotating_section._assembly is assembly
+    assert review.rotating_section.edit_part.isHidden()
+    assert not review.rotating_section.follow_ray_diagram.isChecked()
     assert not hasattr(structure, "calculate_button")
 
     filter_row = next(i for i, (key, _) in enumerate(UNITS) if key == "energy_filter")
@@ -120,6 +146,7 @@ def test_filter_structure_is_available_in_configuration_review(qtbot, tmp_path, 
     dialog._show_preview(state)
     assert review.assembly_3d._runtime_values["energy_filter_slit"] == {"gap_m": 0.0013, "centre_m": 0.0002}
     assert review.assembly_3d._runtime_values["objective_aperture"] == {"radius": 0.25}
+    assert review.rotating_section._runtime_values == review.assembly_3d._runtime_values
 
 
 def test_physical_snapshot_fills_slit_geometry_without_overwriting_live_runtime(qtbot, filter_context):
@@ -143,13 +170,23 @@ def test_physical_snapshot_fills_slit_geometry_without_overwriting_live_runtime(
     assert view.assembly_3d._runtime_values == {
         "objective_aperture": aperture, "energy_filter_slit": live_slit,
     }
+    assert view.rotating_section._assembly is assembly
+    assert view.rotating_section._runtime_values == view.assembly_3d._runtime_values
     assert state.energy_filter.energy_slit.gap_m == 0.0013
+    # A newer saved assembly remains authoritative even if an older ray
+    # snapshot is published after the editor has already changed hardware.
+    newer = SimpleNamespace(parts=(), modules=(), vacuum_liner_segments=())
+    view.set_assembly(newer, {"energy_filter_slit": live_slit})
+    view.display_result(result)
+    assert view.rotating_section._assembly is newer
+    assert view.assembly_3d._assembly is newer
+    assert view.rotating_section._runtime_values["energy_filter_slit"] == live_slit
     assert state.energy_filter.energy_slit.centre_m == 0.0002
 
 
 def test_branch_mirrors_show_uninstalled_state_without_scientific_outputs(qtbot):
     for show_rays in (True, False):
-        view = EnergyFilterView(show_rays=show_rays, show_outputs=False)
+        view = EnergyFilterView(show_rays=show_rays)
         qtbot.addWidget(view)
         view.display_result(SimpleNamespace(state_snapshot=default_state()))
         assert "not installed" in view.summary.text()
@@ -173,8 +210,7 @@ def test_old_named_layouts_and_new_branch_tabs_restore_without_calculation(qtbot
     before = window.state.to_dict()
     requests = []
     workspace.calculation_requested.connect(requests.append)
-    # Mirrors must not duplicate this object name or the layout manager would
-    # silently stop saving/restoring the original EELS/EFTEM tab.
+    # Only the standalone output page owns this stable saved-layout name.
     assert manager.tabs["energyFilterOutputTabs"] is workspace.energy_filter.output_tabs
     old = manager._snapshot()
     for physical_title, expected in (("2D section", "2D"), ("3D model editor", "3D Parts"), ("3D", "3D")):
@@ -184,7 +220,18 @@ def test_old_named_layouts_and_new_branch_tabs_restore_without_calculation(qtbot
         physical = workspace.physical_layout.tabs
         assert physical.tabText(physical.currentIndex()) == expected
         assert workspace.ray_result_tabs.currentWidget() is workspace.interactive_calculation.readout_panel
-        assert workspace.energy_filter.output_tabs.currentIndex() == 2
+        assert workspace.energy_filter.output_tabs.currentIndex() == 1
+
+    # Legacy tab titles are migrated deliberately, irrespective of the currently
+    # selected output tab; the deleted combined plot must not be recreated.
+    for title, expected in (("Physical + rays", "EELS spectrum"),
+                            ("EFTEM image", "EFTEM image"),
+                            ("EELS spectrum", "EELS spectrum")):
+        old["tabs"]["energyFilterOutputTabs"] = title
+        manager._apply(old)
+        tabs = workspace.energy_filter.output_tabs
+        assert tabs.tabText(tabs.currentIndex()) == expected
+        assert tabs.count() == 2
 
     workspace.ray_result_tabs.setCurrentWidget(workspace.energy_filter_rays)
     workspace.physical_layout.tabs.setCurrentWidget(workspace.physical_layout.energy_filter_structure)

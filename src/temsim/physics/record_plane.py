@@ -455,7 +455,7 @@ def _scan_deflection_offsets(state, source, planes, times, maximum_step_mm,
     """
     from temsim.physics.core import build_propagation_plan, execute_propagation_plan
     from temsim.physics.instrument_magnetic import active_column_events
-    from temsim.physics.lens_field_provider import active_mapped_providers
+    from temsim.physics.lens_field_provider import active_vector_providers
     from temsim.physics.electrostatic_column_transport import active_electric_field
 
     if not planes:
@@ -484,7 +484,7 @@ def _scan_deflection_offsets(state, source, planes, times, maximum_step_mm,
     plan = build_propagation_plan(state, source, targets[-1], active_column_events(state),
         include_spherical_aberration=False, include_hexapole=False,
         checkpoint_z_mm=targets, maximum_step_mm=maximum_step_mm)
-    if active_mapped_providers(state) or active_electric_field(plan) is not None:
+    if active_vector_providers(state) or active_electric_field(plan) is not None:
         positions = []
         for working in timed_states:
             plan = build_propagation_plan(working, source, targets[-1],

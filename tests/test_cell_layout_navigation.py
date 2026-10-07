@@ -47,6 +47,7 @@ def test_applied_geometry_reaches_layout_map_and_invalidation(window, monkeypatc
     assert not window.state.vacuum_map.enabled  # Insertion never opts into physics.
     layout, vacuum = window.workspace.physical_layout, window.workspace.vacuum_map
     assert len(layout.cell_overlay.context.layers) == 3
+    assert layout.rotating_section._cell_context.signature() == layout.cell_overlay.context.signature()
     assert window.workspace.tabs.currentWidget() is vacuum
     assert vacuum.current_key == 'specimen_cell'
     assert window.state.vacuum_map.cell.upstream_window.thickness_nm == 7

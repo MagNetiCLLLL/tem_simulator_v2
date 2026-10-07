@@ -220,7 +220,7 @@ def test_later_general_field_does_not_change_the_upstream_canonical_solver(
 
     electric = SimpleNamespace(is_constant_on_interval=lambda start, stop: stop < 3.)
     monkeypatch.setattr(observer, "fields", bounded_fields)
-    monkeypatch.setattr(observer, "active_mapped_providers", lambda _state: ())
+    monkeypatch.setattr(observer, "active_vector_providers", lambda _state: ())
     monkeypatch.setattr(observer, "_active_column_electric_field",
                         lambda _state, start, stop: electric
                         if later_field == "electric" and stop >= 3. else None)

@@ -168,17 +168,17 @@ def estimate_calculation_memory_bytes(
     pre_history = int(math.ceil(pre_span / history_step)) + 2
     post_history = int(math.ceil(post_span / history_step)) + 2
     from temsim.physics.core import electron
-    from temsim.physics.lens_field_provider import FrozenMappedField, active_mapped_providers
+    from temsim.physics.lens_field_provider import active_vector_providers, freeze_vector_provider
 
-    mapped_fields = tuple(FrozenMappedField.from_provider(provider)
-                          for provider in active_mapped_providers(state))
+    mapped_fields = tuple(freeze_vector_provider(provider)
+                          for provider in active_vector_providers(state))
     map_storage = 0
     history_itemsize = 8 if mapped_fields else 4
     for item in mapped_fields:
         # Bound extra exact-grid intervals using the solver's own step rule.
         # Counting base nodes as well is intentionally conservative here.
         field_step = item.maximum_step_mm(step, electron(state)[1])
-        lower, upper = item.field_map.field_support_mm
+        lower, upper = item.field_support_mm
         stride = max(1, int(round(history_step/step)))
         for start, stop, before_sample in ((gun_start, sample_z, True),
                                            (sample_z, stop_z, False)):
@@ -190,8 +190,10 @@ def estimate_calculation_memory_bytes(
             else:
                 post_nodes += extra
                 post_history += int(math.ceil(extra/stride))
-        map_storage += 4*sum(array.nbytes for array in (
-            *item.field_map.axes_m, *item.field_map.components_t))
+        field_map = getattr(item, "field_map", None)
+        if field_map is not None:
+            map_storage += 4*sum(array.nbytes for array in (
+                *field_map.axes_m, *field_map.components_t))
     specimen_mode = str(
         getattr(state.sample, "specimen_mode", "atomic")
     ).strip().lower()

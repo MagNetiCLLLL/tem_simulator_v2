@@ -38,7 +38,7 @@ from temsim.immutable_json import (
 from temsim.physics.core import PropagationCheckpoints
 from temsim.physics.core import AxialPropagationPlan
 from temsim.physics.lens_field_provider import (
-    CoordinateRegistration, FieldMapProvenance, FrozenMappedField, MagneticFieldMap,
+    CoordinateRegistration, FieldMapProvenance, FrozenMappedField, FrozenAnalyticField, MagneticFieldMap,
 )
 from temsim.physics.simulation import (
     Branch, Simulation, validate_flight_time_array, validate_incident_flight_times,
@@ -769,6 +769,16 @@ class ArtifactStore:
         arrays: dict[str, object] = {}
         map_metadata = []
         for index, item in enumerate(plan.mapped_fields):
+            if isinstance(item, FrozenAnalyticField):
+                map_metadata.append({
+                    "map_type": "posed_analytic", "lens_key": item.lens_key,
+                    "terms_t_m": item.terms_t_m,
+                    "origin_global_m": item.registration.origin_global_m,
+                    "rotation_local_to_global": item.registration.rotation_local_to_global,
+                    "native_support_mm": item.native_support_mm,
+                    "radial_support_m": item.radial_support_m,
+                })
+                continue
             field_map = item.field_map
             for number, value in enumerate(field_map.axes_m):
                 arrays[f"map{index}.axis{number}"] = value
@@ -840,6 +850,12 @@ class ArtifactStore:
                 "source_model": "gun-ray-trace; not a coherent-wave source checkpoint",
                 "plan_signature": str(plan.signature),
                 "plan_mapped_fields": map_metadata,
+                "plan_posed_spherical_kicks": [
+                    {"lens_key": kick.lens_key, "local_z_m": kick.local_z_m,
+                     "strength_m3": kick.strength_m3,
+                     "origin_global_m": kick.registration.origin_global_m,
+                     "rotation_local_to_global": kick.registration.rotation_local_to_global}
+                    for kick in plan.posed_spherical_kicks],
                 "gun_blocked_key": list(gun_trace.blocked_key),
                 "gun_scalars": {
                     name: getattr(gun_trace, name)
@@ -908,6 +924,14 @@ class ArtifactStore:
         try:
             mapped_fields = []
             for index, row in enumerate(metadata.get("plan_mapped_fields", ())):
+                if row["map_type"] == "posed_analytic":
+                    mapped_fields.append(FrozenAnalyticField(
+                        lens_key=row["lens_key"], terms_t_m=tuple(map(tuple, row["terms_t_m"])),
+                        registration=CoordinateRegistration(row["origin_global_m"], row["rotation_local_to_global"]),
+                        native_support_mm=tuple(row["native_support_mm"]),
+                        radial_support_m=row["radial_support_m"],
+                    ))
+                    continue
                 dimensions = 2 if row["map_type"] == "axisymmetric_rz" else 3
                 field_map = MagneticFieldMap(
                     map_type=row["map_type"],
@@ -923,6 +947,11 @@ class ArtifactStore:
                     provenance=FieldMapProvenance(**row["provenance"]),
                 )
                 mapped_fields.append(FrozenMappedField(row["lens_key"], field_map, row["scale"]))
+            from temsim.physics.posed_aberrations import FrozenLensAberrationKick
+            posed_cs = tuple(FrozenLensAberrationKick(
+                row["lens_key"], row["local_z_m"], row["strength_m3"],
+                CoordinateRegistration(row["origin_global_m"], row["rotation_local_to_global"]))
+                for row in metadata.get("plan_posed_spherical_kicks", ()))
             plan = AxialPropagationPlan(
                 **fields("plan", _INCIDENT_PLAN_ARRAY_FIELDS),
                 solver_signature=str(metadata["plan_solver_signature"]),
@@ -931,6 +960,7 @@ class ArtifactStore:
                 electric_field_identity=metadata["plan_electric_field_identity"],
                 electric_reference_invariant_ev=metadata["plan_electric_reference_invariant_ev"],
                 mapped_fields=tuple(mapped_fields),
+                posed_spherical_kicks=posed_cs,
             )
             from temsim.particle_section_io import _validate_plan_fields
             _validate_plan_fields(plan)

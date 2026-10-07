@@ -46,14 +46,16 @@ def test_tip_capture_and_all_cutoffs_use_one_exact_cached_solution(tiny_solver):
     assert captured.physical_identity and captured.numerical_identity
     assert not hasattr(gun, '_instrument_electric_end_mm')
     assert closed_field_request(gun) == original
-    positions = np.array([[0., 0., .1], [1e-6, 2e-6, .45], [1e-5, 0., 2.7]])
-    for stop in (.2, 1.7, 3.0264):
+    end_mm = instrument_electric_end_mm(state)
+    end_m = end_mm * 1e-3
+    positions = np.array([[0., 0., .1], [1e-6, 2e-6, .45], [1e-5, 0., end_m - .1]])
+    for stop in (.2, 1.7, end_m):
         _, field, _ = _prepare_electric_provider(state, stop)
         assert field is main
         np.testing.assert_array_equal(captured.interpolate(positions)[0], field.potential_v_at_global_positions(positions))
         np.testing.assert_array_equal(captured.interpolate(positions)[1], field.field_at_global_positions_v_per_m(positions))
     assert len(tiny_solver) == 1
-    assert not captured.is_constant_on_interval(550., 3000.)
+    assert not captured.is_constant_on_interval(550., end_mm)
 
 
 def test_fixed_mesh_keeps_physical_end_face_without_sub_ulp_duplicate():
@@ -101,7 +103,8 @@ def test_downstream_pure_magnetic_tuning_keeps_full_electric_solution(tiny_solve
     after = capture_instrument_electric_field(state)
     assert before.provider is after.provider
     assert before.request_identity == after.request_identity
-    assert after.bounds_m[1, 2] > 3.
+    assert after.bounds_m[1, 2] == before.bounds_m[1, 2] == state._resolved_assembly.exit_z_mm * 1e-3
+    assert after.bounds_m[1, 2] == instrument_electric_end_mm(state) * 1e-3
     with instrument_gun_field_context(state):
         assert state.electron_gun.electric_field is after.provider
         assert state.electron_gun._instrument_magnetic_query_upper_m < after.bounds_m[1, 2]
@@ -126,7 +129,7 @@ def test_scene_captures_immutable_actual_instrument_column_inputs(tiny_solver):
     from temsim.immutable_json import json_digest
     state = default_state()
     magnetic = prepare_magnetic_scene(state)
-    scene = prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., 3000.))
+    scene = prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., instrument_electric_end_mm(state)))
     assert scene._column_handoff_z_m == state.electron_gun.exit_plane_z_mm*1e-3
     assert scene._column_identity == json_digest(scene._column_input_graph)
     with pytest.raises(TypeError):
@@ -144,7 +147,7 @@ def test_unsupported_real_instrument_model_is_not_silently_omitted(tiny_solver):
     magnetic = prepare_magnetic_scene(state)
     state.unknown_model = object()
     with pytest.raises(TypeError, match='Unregistered working-point model'):
-        prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., 3000.))
+        prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., instrument_electric_end_mm(state)))
 
 
 def test_compute_policy_changes_execution_identity_without_changing_captured_fields(tiny_solver):
@@ -154,9 +157,9 @@ def test_compute_policy_changes_execution_identity_without_changing_captured_fie
     state = default_state()
     state.acceleration_backend, state.acceleration_enabled = "CPU", False
     magnetic = prepare_magnetic_scene(state)
-    cpu = prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., 3000.))
+    cpu = prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., instrument_electric_end_mm(state)))
     state.acceleration_backend, state.acceleration_enabled = "Require GPU", True
-    gpu = prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., 3000.))
+    gpu = prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., instrument_electric_end_mm(state)))
     assert cpu.physical_identity == gpu.physical_identity
     assert cpu.numerical_identity == gpu.numerical_identity
     assert cpu._column_identity != gpu._column_identity
@@ -172,7 +175,7 @@ def test_stale_magnetic_capture_cannot_rebuild_a_different_column(tiny_solver):
     magnetic = prepare_magnetic_scene(state)
     state.lenses[0].percent += 1.
     with pytest.raises(ValueError, match='differs from the instrument inputs'):
-        prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., 3000.))
+        prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., instrument_electric_end_mm(state)))
 
 
 def test_app_display_crop_is_verified_and_expanded_to_complete_transport_field(tiny_solver):
@@ -181,7 +184,7 @@ def test_app_display_crop_is_verified_and_expanded_to_complete_transport_field(t
     complete = prepare_magnetic_scene(state)
     cropped = prepare_magnetic_scene(state, z_limits_mm=(1000., 1700.))
     assert len(cropped._sources) < len(complete._sources)
-    scene = prepare_test_electron_scene(state, cropped, z_limits_mm=(0., 3000.))
+    scene = prepare_test_electron_scene(state, cropped, z_limits_mm=(0., instrument_electric_end_mm(state)))
     assert scene.magnetic_scene.physical_identity == complete.physical_identity
     assert len(scene.magnetic_scene._sources) == len(complete._sources)
     assert scene._column_input_graph is not None
@@ -190,14 +193,14 @@ def test_app_display_crop_is_verified_and_expanded_to_complete_transport_field(t
     lens = next(lens for lens in state.lenses if lens.key in cropped.source_keys)
     lens.percent += 1.
     with pytest.raises(ValueError, match='differs from the instrument inputs'):
-        prepare_test_electron_scene(state, cropped, z_limits_mm=(0., 3000.))
+        prepare_test_electron_scene(state, cropped, z_limits_mm=(0., instrument_electric_end_mm(state)))
 
 
 def test_unknown_real_scene_identity_retains_actual_fields_without_column_replay(tiny_solver):
     from temsim.magnetic_field_scene import prepare_magnetic_scene
     state = default_state()
     magnetic = replace(prepare_magnetic_scene(state), physical_identity=None, numerical_identity=None)
-    scene = prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., 3000.))
+    scene = prepare_test_electron_scene(state, magnetic, z_limits_mm=(0., instrument_electric_end_mm(state)))
     assert scene._column_input_graph is scene._column_handoff_z_m is scene._column_identity is None
     assert scene.diagnostic_fields_at_global_position((0., 0., .001)) is not None
     assert any('retains full time-domain' in note for note in scene.notes)
@@ -225,11 +228,12 @@ def test_historical_surface_model_keeps_declared_field_and_exact_zero_extension(
     assert captured.base_field is historical
     assert field_request(captured.gun_snapshot) == before
     assert not hasattr(captured.gun_snapshot, '_instrument_electric_end_mm')
-    assert captured.is_constant_on_interval(450., 3000.)
-    assert not captured.is_constant_on_interval(449., 3000.)
+    end_mm = instrument_electric_end_mm(state)
+    assert captured.is_constant_on_interval(450., end_mm)
+    assert not captured.is_constant_on_interval(449., end_mm)
     assert any('Historical surface-model' in note for note in captured.notes)
     historical.field_at_global_positions_v_per_m = lambda p: np.ones_like(p)
-    assert not captured.is_constant_on_interval(450., 3000.)
+    assert not captured.is_constant_on_interval(450., end_mm)
 
 
 def test_potential_rise_gauge_and_wien_field_are_added_once():

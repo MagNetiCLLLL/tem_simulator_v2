@@ -122,6 +122,22 @@ def _complete_part_length_updates(document, updates):
             center_z_mm=updates.get(prefix + ("local_center_z_mm",)),
         )
         completed.update({prefix + (field,): value for field, value in endpoints.items()})
+    from copy import deepcopy
+    from temsim.lens_pose import PHYSICAL_POSE_FIELDS, migrate_legacy_lens_pose, validate_physical_lens_pose
+    posed_keys = {path[1] for path in updates if len(path) == 3 and path[0] == "parts"
+                 and path[2] in PHYSICAL_POSE_FIELDS}
+    for key in posed_keys:
+        if key not in parts:
+            raise ValueError(f"Missing TOML part {key!r}")
+        original = parts[key]
+        candidate = deepcopy(original)
+        migrate_legacy_lens_pose(candidate)
+        candidate.update({path[2]: value for path, value in completed.items()
+                          if len(path) == 3 and path[:2] == ("parts", key)})
+        validate_physical_lens_pose(candidate)
+        for field, value in candidate.items():
+            if field not in original or value != original[field]:
+                completed[("parts", key, field)] = value
     return completed
 
 
@@ -140,6 +156,10 @@ class ManifestEditor:
                 for part in document["parts"]
                 if str(part["key"]) == target.part_key
             )
+            from temsim.lens_pose import physical_pose_values, supports_physical_lens_pose
+            editable_values = dict(part)
+            if supports_physical_lens_pose(part):
+                editable_values.update(physical_pose_values(part))
             return tuple(
                 ManifestField(
                     path=("parts", target.part_key, str(field)),
@@ -149,7 +169,7 @@ class ManifestEditor:
                               and not shared_deflector_field_owner(target.part_key, field)),
                     meaning=describe_parameter(part, ("parts", target.part_key, str(field)), by_key=by_key),
                 )
-                for field, value in part.items()
+                for field, value in editable_values.items()
             )
 
         fields: list[ManifestField] = []

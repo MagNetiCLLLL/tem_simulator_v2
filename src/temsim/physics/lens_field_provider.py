@@ -16,7 +16,7 @@ accept SI-labelled columns/arrays only and never infer units from magnitudes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields as dataclass_fields, is_dataclass
+from dataclasses import dataclass, field, fields as dataclass_fields, is_dataclass, replace
 from hashlib import sha256
 import json
 import math
@@ -125,6 +125,41 @@ class CoordinateRegistration:
     def vectors_local_to_global(self, vectors) -> np.ndarray:
         local = np.asarray(vectors, dtype=float)
         return local @ self.rotation_array.T
+
+
+def _identity_registration(registration: CoordinateRegistration) -> bool:
+    return (registration.origin_global_m == (0.0, 0.0, 0.0)
+            and registration.rotation_local_to_global == (
+                (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)))
+
+
+def _compose_registration(outer, inner) -> CoordinateRegistration:
+    """Apply a physical lens pose outside an existing map registration."""
+    if _identity_registration(outer):
+        return inner
+    rotation = outer.rotation_array @ inner.rotation_array
+    origin = outer.rotation_array @ inner.origin_array_m + outer.origin_array_m
+    return CoordinateRegistration(tuple(origin), tuple(map(tuple, rotation)))
+
+
+def _posed_field_map(field_map, registration):
+    if _identity_registration(registration):
+        return field_map
+    # Arrays have immutable byte storage and are shared by dataclass replacement.
+    # The original map/descriptor stays in its calibrated reference frame.
+    return replace(field_map, registration=_compose_registration(registration, field_map.registration))
+
+
+def _posed_axial_support(support_mm, registration, radius_m=0.0):
+    if _identity_registration(registration):
+        return tuple(float(value) for value in support_mm)
+    lower, upper = np.asarray(support_mm, dtype=float) * 1e-3
+    if not np.isfinite((lower, upper)).all():
+        return float("-inf"), float("inf")
+    row = registration.rotation_array[2]
+    ends = row[2] * np.asarray((lower, upper)) + registration.origin_global_m[2]
+    radial_extent = abs(float(radius_m)) * math.hypot(row[0], row[1])
+    return (float(np.min(ends))-radial_extent)*1e3, (float(np.max(ends))+radial_extent)*1e3
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,10 +275,15 @@ def _part_geometry_data(part) -> dict[str, object]:
     newly editable mechanical property cannot silently reuse an old map.
     """
 
+    from temsim.lens_pose import PHYSICAL_POSE_FIELDS
     result: dict[str, object] = {}
     for raw_name, value in dict(getattr(part, "data", {})).items():
         name = str(raw_name)
         lowered = name.lower()
+        if name in PHYSICAL_POSE_FIELDS:
+            # Rigid placement changes registration, not the field's shape or
+            # material identity; moving a lens must not stale its bound map.
+            continue
         if lowered.endswith(_PART_GEOMETRY_METADATA_SUFFIXES):
             continue
         if (lowered.startswith("field_") and lowered != "field_source_key") or lowered.endswith(
@@ -1257,6 +1297,8 @@ def _provider_geometry_token(
     current_binding = binding or lens_geometry_binding(
         state, lens_key, native_provider
     )
+    from temsim.lens_pose import lens_pose_registration
+    registration = lens_pose_registration(state, lens_key)
     return (
         id(source),
         str(getattr(state, "simulation_mode", "custom")),
@@ -1266,6 +1308,7 @@ def _provider_geometry_token(
         current_binding.geometry_fingerprint,
         _fingerprint(descriptor) if isinstance(descriptor, Mapping) else "",
         id(imported),
+        registration,
     )
 
 
@@ -1327,8 +1370,22 @@ class GeometryAwareAnalyticFieldProvider:
     binding: LensGeometryBinding
     fallback_reason: str
     model_status: str = "provisional_geometry_bound_analytic_not_fem"
+    registration: CoordinateRegistration = CoordinateRegistration()
 
     def field_support_mm(self, *args) -> tuple[float, float]:
+        return _posed_axial_support(self.native_field_support_mm(*args), self.registration,
+                                    self.radial_support_m)
+
+    @property
+    def radial_support_m(self) -> float:
+        source = _runtime_lens_state(self.native_provider)
+        for item in (self.native_provider, source):
+            diameter = getattr(item, "bore_diameter_mm", None)
+            if diameter is not None and math.isfinite(float(diameter)) and float(diameter) > 0:
+                return float(diameter) * 0.5e-3
+        return max(abs(float(getattr(source, "a_mm", 1.0))), 1.0) * 1e-3
+
+    def native_field_support_mm(self, *args) -> tuple[float, float]:
         """Return native support, with a legacy analytic-profile fallback.
 
         Older round-lens providers expose only ``magnetic_field_t`` plus their
@@ -1389,7 +1446,19 @@ class GeometryAwareAnalyticFieldProvider:
         return float("-inf"), float("inf")
 
     def magnetic_field_t(self, z_mm) -> np.ndarray:
-        return np.asarray(self.native_provider.magnetic_field_t(z_mm), dtype=float)
+        if _identity_registration(self.registration):
+            return self._native_magnetic_field_t(z_mm)
+        z = np.asarray(z_mm, dtype=float)
+        positions = np.zeros(z.shape + (3,), dtype=float)
+        positions[..., 2] = z * 1e-3
+        return self.field_at_global_positions_t(positions)[..., 2]
+
+    def _native_magnetic_field_t(self, z_mm) -> np.ndarray:
+        method = getattr(self.native_provider, "magnetic_field_t", None)
+        if callable(method):
+            return np.asarray(method(z_mm), dtype=float)
+        return _gaussian_axial_field(_analytic_gaussian_terms(self.native_provider),
+                                    np.asarray(z_mm, dtype=float) * 1e-3)[0]
 
     def field_at_global_positions_t(self, positions_m) -> np.ndarray:
         """Use the first-order divergence-free off-axis expansion.
@@ -1402,8 +1471,10 @@ class GeometryAwareAnalyticFieldProvider:
         if positions.shape[-1:] != (3,):
             raise FieldMapError("Analytic field query positions must end in XYZ")
         flat = positions.reshape(-1, 3)
+        if not _identity_registration(self.registration):
+            flat = self.registration.positions_global_to_local_m(flat)
         z_mm = flat[:, 2] * 1.0e3
-        support = self.field_support_mm()
+        support = self.native_field_support_mm()
         support_span_mm = abs(support[1] - support[0])
         if not np.isfinite(support_span_mm):
             source = _runtime_lens_state(self.native_provider)
@@ -1414,13 +1485,16 @@ class GeometryAwareAnalyticFieldProvider:
                 1.0,
             )
         scale_mm = max(support_span_mm, 1.0) * 1.0e-6
-        plus = np.asarray(self.magnetic_field_t(z_mm + scale_mm), dtype=float)
-        minus = np.asarray(self.magnetic_field_t(z_mm - scale_mm), dtype=float)
+        plus = self._native_magnetic_field_t(z_mm + scale_mm)
+        minus = self._native_magnetic_field_t(z_mm - scale_mm)
         derivative_t_per_m = (plus - minus) / (2.0 * scale_mm * 1.0e-3)
         bx = -0.5 * flat[:, 0] * derivative_t_per_m
         by = -0.5 * flat[:, 1] * derivative_t_per_m
-        bz = self.magnetic_field_t(z_mm)
-        return np.column_stack((bx, by, bz)).reshape(positions.shape)
+        bz = self._native_magnetic_field_t(z_mm)
+        field = np.column_stack((bx, by, bz))
+        if not _identity_registration(self.registration):
+            field = self.registration.vectors_local_to_global(field)
+        return field.reshape(positions.shape)
 
 
 def bind_imported_lens_field_map(
@@ -1509,9 +1583,28 @@ def resolve_runtime_lens_field_provider(state, lens_key: str, native_provider):
         field_geometry_admission(state, current, descriptor)
     if selected_mode == "nonlinear_material" and descriptor.get("solver") != "axisymmetric_nonlinear_fem":
         raise FieldMapError(f"{key}: Nonlinear Material Field requires an explicit B-H recipe")
+    from temsim.lens_pose import lens_pose_registration
+    registration = lens_pose_registration(state, key)
     if uses_field_maps(state) and descriptor.get("solver") == "axisymmetric_nonlinear_fem":
         from temsim.physics.nonlinear_circuits import resolve_nonlinear_provider
-        return resolve_nonlinear_provider(state, key, native_provider, current)
+        # A nonlinear joint solve has one inseparable total field. It may be
+        # moved as a whole, but independent channel poses require a 3D solve.
+        joint_keys = [name for name, row in getattr(state, "lens_field_map_descriptors", {}).items()
+                      if row.get("solver") == "axisymmetric_nonlinear_fem"]
+        if any(lens_pose_registration(state, name) != registration for name in joint_keys):
+            raise FieldMapError("Joint nonlinear magnetic fields require the same rigid placement for all channels; "
+                                "use Analytic Field or a matching 3D field map for independently moved lenses")
+        provider = resolve_nonlinear_provider(state, key, native_provider, current)
+        if _identity_registration(registration):
+            return provider
+        cache = getattr(state, "_runtime_posed_nonlinear_provider_cache", {})
+        entry = cache.get(key)
+        if entry is not None and entry[0] is provider and entry[1] == registration:
+            return entry[2]
+        posed = replace(provider, field_map=_posed_field_map(provider.field_map, registration))
+        cache[key] = (provider, registration, posed)
+        state._runtime_posed_nonlinear_provider_cache = cache
+        return posed
     # Check before returning a cached basis too: another channel may have edited
     # the shared material/domain settings since this channel's last field solve.
     if uses_field_maps(state):
@@ -1543,6 +1636,7 @@ def resolve_runtime_lens_field_provider(state, lens_key: str, native_provider):
         provider = GeometryAwareAnalyticFieldProvider(
             key, native_provider, current, f"selected_{selected_mode}_model",
             model_status="ideal_paraxial" if selected_mode == "ideal" else "parameterized_analytic",
+            registration=registration,
         )
         diagnostics[key] = {"mode": selected_mode, "model_status": provider.model_status,
                             "geometry_fingerprint": current.geometry_fingerprint}
@@ -1572,7 +1666,8 @@ def resolve_runtime_lens_field_provider(state, lens_key: str, native_provider):
     ):
         topology = json.loads(current.canonical_geometry_json)["lens_assembly"].get("magnetic_circuit_topology")
         scaling = "fixed_operating_point" if topology == "monolithic_saturated_insert" else "linear_assumption"
-        provider = MappedLensFieldProvider(key, imported, native_provider, current, excitation_scaling=scaling)
+        provider = MappedLensFieldProvider(key, _posed_field_map(imported, registration), native_provider,
+                                          current, excitation_scaling=scaling)
         provider.excitation_scale()
         diagnostics[key] = {
             "mode": "imported_field_map",
@@ -1601,7 +1696,7 @@ def resolve_runtime_lens_field_provider(state, lens_key: str, native_provider):
         else "no_matching_measured_or_fem_map"
     )
     provider = GeometryAwareAnalyticFieldProvider(
-        key, native_provider, current, reason
+        key, native_provider, current, reason, registration=registration
     )
     diagnostics[key] = {
         "mode": "provisional_analytic_fallback",
@@ -1665,6 +1760,165 @@ def active_mapped_providers(state) -> tuple[MappedLensFieldProvider, ...]:
     return tuple(result)
 
 
+def active_vector_providers(state) -> tuple:
+    """Maps and displaced/tilted analytic lenses that need XYZ transport.
+
+    Centred Gaussian-only runs retain the original fast axial solver. Genuine
+    mapped providers remain separately identifiable for field-derived fitting.
+    """
+    from temsim.component_keys import CONDENSER_LENS_KEYS
+    from temsim.lens_pose import has_lens_pose
+    mapped = active_mapped_providers(state)
+    result = list(mapped)
+    keys = {provider.lens_key for provider in mapped}
+    for lens in getattr(state, "lenses", ()):
+        if lens.key in keys or not bool(getattr(lens, "enabled", True)) or not has_lens_pose(state, lens.key):
+            continue
+        native = state.condenser_system[lens.key] if lens.key in CONDENSER_LENS_KEYS else lens
+        result.append(resolve_runtime_lens_field_provider(state, lens.key, native))
+    return tuple(result)
+
+
+def _analytic_gaussian_terms(native_provider):
+    """Freeze the existing analytic axial law as (T, centre m, sigma m)."""
+    source = _runtime_lens_state(native_provider)
+    enabled, percent, polarity = _runtime_excitation(native_provider)
+    scale = percent * 0.01 * polarity if enabled else 0.0
+    groups = []
+    if hasattr(source, "upper_gaussian") and hasattr(source, "lower_gaussian"):
+        for prefix in ("upper", "lower"):
+            groups.append((getattr(source, prefix+"_gaussian"),
+                           float(getattr(source, prefix+"_field_center_z_mm")),
+                           float(getattr(source, prefix+"_a_mm")),
+                           scale * float(getattr(source, prefix+"_b0_t"))))
+    elif hasattr(source, "gaussian"):
+        if bool(getattr(source, "normalise_profile_peak", False)):
+            from temsim.optics.lens_focal_length import raw_unit_field_peak
+            scale /= max(raw_unit_field_peak(source), 1e-15)
+        groups.append((source.gaussian, float(source.z_mm), float(source.a_mm), scale * float(source.b0_t)))
+    else:
+        raise FieldMapError("Rigid analytic lens transport requires an explicit Gaussian field profile")
+    terms = tuple((factor*float(term.amplitude), (centre+float(term.offset)*width)*1e-3,
+                   max(abs(float(term.sigma)*width), 1e-12)*1e-3)
+                  for gaussian, centre, width, factor in groups for term in gaussian)
+    if not terms or not np.isfinite(terms).all():
+        raise FieldMapError("Rigid analytic lens field has no finite Gaussian terms")
+    return terms
+
+
+def _gaussian_axial_field(terms, z_m):
+    z = np.asarray(z_m, dtype=float)
+    bz, derivative = np.zeros_like(z), np.zeros_like(z)
+    for amplitude, centre, sigma in terms:
+        dz = z-centre
+        contribution = amplitude*np.exp(-0.5*(dz/sigma)**2)
+        bz += contribution
+        derivative -= contribution*dz/sigma**2
+    return bz, derivative
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenAnalyticField:
+    """Immutable posed analytic lens, containing no live GUI/state references."""
+
+    lens_key: str
+    terms_t_m: tuple[tuple[float, float, float], ...]
+    registration: CoordinateRegistration
+    native_support_mm: tuple[float, float]
+    radial_support_m: float
+
+    def __post_init__(self):
+        terms = tuple(tuple(float(value) for value in term) for term in self.terms_t_m)
+        if not terms or any(len(term) != 3 or term[2] <= 0 for term in terms) or not np.isfinite(terms).all():
+            raise FieldMapError("Frozen analytic terms require finite amplitude, centre and positive sigma")
+        support = tuple(float(value) for value in self.native_support_mm)
+        radius = float(self.radial_support_m)
+        if len(support) != 2 or not np.isfinite(support).all() or support[1] <= support[0]:
+            raise FieldMapError("Frozen analytic field support must be finite and increasing")
+        if not math.isfinite(radius) or radius <= 0:
+            raise FieldMapError("Frozen analytic field radius must be finite and positive")
+        object.__setattr__(self, "terms_t_m", terms)
+        object.__setattr__(self, "native_support_mm", support)
+        object.__setattr__(self, "radial_support_m", radius)
+
+    @classmethod
+    def from_provider(cls, provider: GeometryAwareAnalyticFieldProvider):
+        return cls(provider.lens_key, _analytic_gaussian_terms(provider.native_provider),
+                   provider.registration, provider.native_field_support_mm(), provider.radial_support_m)
+
+    @property
+    def field_support_mm(self):
+        return _posed_axial_support(self.native_support_mm, self.registration, self.radial_support_m)
+
+    @property
+    def scale(self):
+        # Excitation has already been folded into the immutable amplitudes.
+        return 1.0 if any(term[0] != 0.0 for term in self.terms_t_m) else 0.0
+
+    @property
+    def fingerprint(self):
+        return _fingerprint(("posed-analytic-first-order-v1", self.lens_key, self.terms_t_m,
+                             self.registration, self.native_support_mm, self.radial_support_m))
+
+    def maximum_step_mm(self, requested_step_mm, momentum_kg_m_s):
+        if not (math.isfinite(requested_step_mm) and requested_step_mm > 0
+                and math.isfinite(momentum_kg_m_s) and momentum_kg_m_s > 0):
+            raise FieldMapError("Analytic transport step and momentum must be finite and positive")
+        width_mm = min(term[2] for term in self.terms_t_m)*1e3
+        # Bound both Gaussian variation and the near-axis angular advance.
+        peak_t = sum(abs(amplitude)*(1+self.radial_support_m/sigma)
+                     for amplitude, _, sigma in self.terms_t_m)
+        bend_step_mm = .02*momentum_kg_m_s/(1.602176634e-19*max(peak_t, 1e-30))*1e3
+        return min(float(requested_step_mm), width_mm*.2, bend_step_mm)
+
+    def field_at_global_positions_t(self, positions_m):
+        positions = np.asarray(positions_m, dtype=float)
+        local = self.registration.positions_global_to_local_m(positions)
+        bz, derivative = _gaussian_axial_field(self.terms_t_m, local[..., 2])
+        field = np.stack((-0.5*local[..., 0]*derivative, -0.5*local[..., 1]*derivative, bz), axis=-1)
+        return self.registration.vectors_local_to_global(field)
+
+    def slope_derivative(self, positions_m, slopes, charge_over_p):
+        """Rotate the existing paraxial lens law, without adding a second Cs.
+
+        Imported 3D maps use full Lorentz transport. An analytic lens retains
+        its original local paraxial truncation plus the separately configured
+        aberration kick, including in the limit of zero misalignment.
+        """
+        positions = np.asarray(positions_m, dtype=float)
+        slopes = np.asarray(slopes, dtype=float)
+        if positions.ndim != 2 or positions.shape[1] != 3 or slopes.shape != (len(positions), 2):
+            raise FieldMapError("Analytic slope transport requires matching N by 3 positions and N by 2 slopes")
+        if not np.isfinite(slopes).all():
+            raise FieldMapError("Analytic lens slopes must be finite")
+        local = self.registration.positions_global_to_local_m(positions)
+        direction = np.column_stack((slopes, np.ones(len(slopes)))) @ self.registration.rotation_array
+        if np.any(direction[:, 2] <= 1e-10):
+            raise FieldMapError("Analytic lens trajectory leaves the forward local-axis domain; "
+                                "reduce the tilt or use a 3D field model with time-domain transport")
+        local_slopes = direction[:, :2] / direction[:, 2, None]
+        bz, derivative = _gaussian_axial_field(self.terms_t_m, local[:, 2])
+        bx, by = -.5*local[:, 0]*derivative, -.5*local[:, 1]*derivative
+        factor = np.broadcast_to(np.asarray(charge_over_p, dtype=float), (len(positions),))
+        if not np.isfinite(factor).all():
+            raise FieldMapError("Analytic lens charge over momentum must be finite")
+        local_acceleration = np.column_stack((factor*(local_slopes[:, 1]*bz-by),
+                                             factor*(bx-local_slopes[:, 0]*bz), np.zeros(len(slopes))))
+        global_acceleration = self.registration.vectors_local_to_global(local_acceleration)
+        global_direction = self.registration.vectors_local_to_global(
+            np.column_stack((local_slopes, np.ones(len(slopes)))))
+        dz = global_direction[:, 2, None]
+        return (global_acceleration[:, :2]*dz-global_direction[:, :2]*global_acceleration[:, 2, None])/dz**3
+
+
+def freeze_vector_provider(provider):
+    if isinstance(provider, MappedLensFieldProvider):
+        return FrozenMappedField.from_provider(provider)
+    if isinstance(provider, GeometryAwareAnalyticFieldProvider):
+        return FrozenAnalyticField.from_provider(provider)
+    raise FieldMapError("Unsupported vector lens field provider")
+
+
 def supports_axisymmetric_reduction(field_map: MagneticFieldMap) -> bool:
     """Only centred, axially aligned RZ maps admit the scalar thin-lens model."""
     return (
@@ -1699,6 +1953,14 @@ class FrozenMappedField:
                                     for component in self.field_map.components_t)
         bend_step_mm = .02*momentum_kg_m_s/(1.602176634e-19*max(peak_t,1e-30))*1e3
         return min(float(requested_step_mm), spacing_mm*.5, bend_step_mm)
+
+    @property
+    def field_support_mm(self) -> tuple[float, float]:
+        return self.field_map.field_support_mm
+
+    @property
+    def registration(self) -> CoordinateRegistration:
+        return self.field_map.registration
 
     @classmethod
     def from_provider(cls, provider: MappedLensFieldProvider):

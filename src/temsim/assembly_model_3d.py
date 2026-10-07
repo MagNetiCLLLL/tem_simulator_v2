@@ -116,7 +116,7 @@ def assembly_model_fingerprint(assembly, runtime_values=None) -> str:
     """
     parts, documents = _contexts(assembly)
     payload = {
-        "schema": "resolved-assembly-surfaces-v2-energy-filter-mount",
+        "schema": "resolved-assembly-surfaces-v3-physical-lens-pose",
         "documents": documents,
         "placements": [(part.module_key, part.key, part.start_z_mm, part.center_z_mm,
                         part.end_z_mm, part.length_mm, part.parent_key) for part in parts],
@@ -262,8 +262,10 @@ def assembly_model_from_assembly(assembly, *, runtime_values=None, angular_segme
         except (ValueError, TypeError, KeyError, OverflowError, RuntimeError) as exc:
             omitted.append(row["key"])
             errors.append(f"{row['key']}: {exc}")
-    notes.insert(0, "Configured mechanical positions in global column mm; runtime aperture/slit openings and offsets. "
-                    "No insertion mechanism, detector motion or new lens field is inferred.")
+    notes.insert(0, "Configured mechanical positions in global column mm; lens translations and rotations follow "
+                    "the same rigid pose as their magnetic fields. Physical children follow their declared parent; "
+                    "shared bodies are drawn once under that ownership. Runtime aperture/slit openings and offsets. "
+                    "No insertion mechanism, detector motion or field strength from coil dimensions is inferred.")
     if any(supports_energy_filter_part(part.data) for part in parts):
         notes.insert(1, "Energy Filter rigid mount: branch (X,Y,Z) maps to column (-Z,Y,X), translated to the resolved entrance. "
                         "Incoming +X becomes downward column +Z; a configured 90-degree bend exits along column +X. "

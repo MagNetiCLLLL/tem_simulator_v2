@@ -466,9 +466,28 @@ def _part_meshes(part, by_key, count, aperture_index=0, runtime=None):
                 updated = tuple(preserved)
             meshes = tuple(rigid_mesh(mesh, rotation, origin - rotation @ center) for mesh in updated)
         else:
-            meshes = apply_model_features(part, meshes, angular_segments=count)
+            # A lens's rigid placement now belongs to the optical assembly.
+            # Keep CAD shape changes local, then apply the same rigid pose as
+            # the magnetic field to this part and each physical descendant.
+            meshes = apply_model_features(lens_shape_part(part), meshes, angular_segments=count)
         notes += (f"{part['key']}: explicit 3D solid and feature geometry; the optical/magnetic solver does not infer a new field model from this mesh.",)
+    from temsim.lens_pose import effective_part_transform_mm
+    rotation, translation = effective_part_transform_mm(part, by_key)
+    if not (np.array_equal(rotation, np.eye(3)) and np.array_equal(translation, np.zeros(3))):
+        from temsim.energy_filter_model_3d import rigid_mesh
+        meshes = tuple(rigid_mesh(mesh, rotation, translation) for mesh in meshes)
     return meshes, notes
+
+
+def lens_shape_part(part):
+    """Return CAD geometry with a lens's separately applied rigid pose removed.
+
+    Older files store that pose in ``model_3d.transform``.  It remains readable
+    by the common pose helper, but must never move the lens mesh twice. Scale
+    and Boolean features still describe shape only and do not rescale a field.
+    """
+    from temsim.lens_pose import without_lens_rigid_cad
+    return without_lens_rigid_cad(part)
 
 
 def part_dimension_specs(document, part_key, *, runtime_values=None):
@@ -482,6 +501,31 @@ def part_dimension_specs(document, part_key, *, runtime_values=None):
     from temsim.parameter_semantics import describe_parameter
     specs = (_dimensions(part, by_key) + feature_dimension_specs(part)
              + operating_dimension_specs(part, (runtime_values or {}).get(part_key)))
+    from temsim.lens_pose import physical_pose_values, supports_physical_lens_pose, inherits_parent_lens_pose
+    pose_owner, seen = part, set()
+    while pose_owner is not None and not supports_physical_lens_pose(pose_owner):
+        if not inherits_parent_lens_pose(pose_owner):
+            pose_owner = None
+            break
+        if pose_owner["key"] in seen:
+            raise ValueError("Cyclic lens pose ownership")
+        seen.add(pose_owner["key"])
+        pose_owner = by_key.get(pose_owner.get("parent_key"))
+    if pose_owner is not None:
+        values = physical_pose_values(pose_owner)
+        pose_names = set(values)
+        # Canonical placement controls exist even for old files with no saved
+        # pose; omit the old CAD controls to avoid two competing edit surfaces.
+        if pose_owner is part:
+            specs = tuple(spec for spec in specs if spec.path[2] not in pose_names and not (
+                len(spec.path) > 4 and spec.path[2:4] == ("model_3d", "transform")
+                and spec.path[4] in {"offset_mm", "rotation_deg"}))
+        prefix = "Parent lens: " if pose_owner is not part else ""
+        specs += tuple(DimensionSpec(("parts", pose_owner["key"], name), prefix +
+            ("Position " + name[7].upper() + " offset" if name.startswith("offset_")
+             else "Rotation about " + name[9].upper()),
+            float(value), "mrad" if name.endswith("_mrad") else "mm")
+            for name, value in values.items())
     if part.get("tip_particle_model"):
         from temsim.tip_model_3d import tip_dimension_overrides
         specs = tip_dimension_overrides(part, specs, (runtime_values or {}).get(part_key))

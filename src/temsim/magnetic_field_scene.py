@@ -184,7 +184,11 @@ class _Source:
     def contains(self, points):
         valid = np.all((points >= self.bounds_m[0]) & (points <= self.bounds_m[1]), axis=1)
         if self.field_map is None:
-            return valid & (np.hypot(points[:, 0], points[:, 1]) <= self.radius_m)
+            local = self.analytic_local_points(points)
+            if hasattr(self.provider, "native_field_support_mm"):
+                lo, hi = np.asarray(self.provider.native_field_support_mm())*1e-3
+                valid &= (local[:, 2] >= lo) & (local[:, 2] <= hi)
+            return valid & (np.hypot(local[:, 0], local[:, 1]) <= self.radius_m)
         local = self.field_map.registration.positions_global_to_local_m(points)
         if self.field_map.map_type == "axisymmetric_rz":
             coordinates = np.column_stack((np.hypot(local[:, 0], local[:, 1]), local[:, 2]))
@@ -193,6 +197,18 @@ class _Source:
         for index, axis in enumerate(self.field_map.axes_m):
             valid &= (coordinates[:, index] >= axis[0]) & (coordinates[:, index] <= axis[-1])
         return valid
+
+    def analytic_local_points(self, points):
+        registration = getattr(self.provider, "registration", None)
+        return (registration.positions_global_to_local_m(points)
+                if registration is not None else points)
+
+    def analytic_axial_mask(self, points):
+        if hasattr(self.provider, "native_field_support_mm"):
+            local = self.analytic_local_points(points)
+            lo, hi = np.asarray(self.provider.native_field_support_mm())*1e-3
+            return (local[:, 2] >= lo) & (local[:, 2] <= hi)
+        return (points[:, 2] >= self.bounds_m[0, 2]) & (points[:, 2] <= self.bounds_m[1, 2])
 
 
 @dataclass(frozen=True)
@@ -235,13 +251,13 @@ class MagneticSceneField:
         if any(point[i] < bounds[0, i] or point[i] > bounds[1, i] for i in range(3)):
             return None
         active = []
-        radius = float(np.hypot(point[0], point[1]))
         for source in self._sources:
             if source.known_zero or not source.bounds_m[0, 2] <= point[2] <= source.bounds_m[1, 2]:
                 continue
             if source.field_map is None:
-                if (radius > source.radius_m or
-                        any(point[i] < source.bounds_m[0, i] or point[i] > source.bounds_m[1, i] for i in (0, 1))):
+                if not source.analytic_axial_mask(point[None, :])[0]:
+                    continue
+                if not source.contains(point[None, :])[0]:
                     return None
             elif not source.contains(point[None, :])[0]:
                 return None
@@ -314,11 +330,11 @@ class MagneticSceneField:
         # only inside every analytic contributor's radial validity region.
         # Otherwise terminate the line instead of bending it with a partial
         # sum. Finite imported maps retain their native zero-outside contract.
-        radius = np.hypot(points[:, 0], points[:, 1])
         for source in self._sources:
             if source.field_map is None and not source.known_zero:
-                active_z = ((points[:, 2] >= source.bounds_m[0, 2])
-                            & (points[:, 2] <= source.bounds_m[1, 2]))
+                local = source.analytic_local_points(points)
+                radius = np.hypot(local[:, 0], local[:, 1])
+                active_z = source.analytic_axial_mask(points)
                 valid &= ~(active_z & (radius > source.radius_m))
         return valid
 
@@ -360,6 +376,15 @@ def _resolved_provider(state, lens):
         from temsim.physics.nonlinear_circuits import nonlinear_state_fingerprint
         diagnostic = (getattr(state, "_field_provider_diagnostics", {}) or {}).get(key, {})
         matched = diagnostic.get("joint_state_fingerprint") == nonlinear_state_fingerprint(state)
+        from temsim.lens_pose import lens_pose_registration
+        from temsim.physics.lens_field_provider import _identity_registration
+        registration = lens_pose_registration(state, key)
+        if not _identity_registration(registration):
+            posed = getattr(state, "_runtime_posed_nonlinear_provider_cache", {}).get(key)
+            if posed is None or posed[0] is not provider or posed[1] != registration:
+                matched = False
+            else:
+                provider = posed[2]
     if not matched or provider.binding.geometry_fingerprint != lens_geometry_binding(state, key, native).geometry_fingerprint:
         raise ValueError(f"{key}: captured field inputs changed; recalculate before viewing fields")
     provider.excitation_scale()  # Also enforces the frozen nonlinear operating point.
@@ -531,7 +556,7 @@ def _source_field_inputs(source, original_provider, reference):
             "interpolation": "linear; no extrapolation; native map zero-outside",
         }
         return "registered_mapped_field", physical, numerical, "Finite registered map; missing active map support is unknown, not zero."
-    if not magnetic_provider_is_supported(provider):
+    if not magnetic_provider_is_supported(provider, allow_rigid_pose=True):
         return None
     if type(provider) is GeometryAwareAnalyticFieldProvider:
         native = provider.native_provider
@@ -551,7 +576,9 @@ def _source_field_inputs(source, original_provider, reference):
             physical["gaussian"] = _gaussian_inputs(lens.gaussian)
         physical["geometry_binding"] = provider.binding.geometry_fingerprint
         physical["family"] = family
-        support = provider.field_support_mm()
+        physical["origin_global_m"] = provider.registration.origin_global_m
+        physical["rotation_local_to_global"] = provider.registration.rotation_local_to_global
+        support = provider.native_field_support_mm()
         numerical = {"axial_support_mm": tuple(support),
                      "axial_derivative_step_mm": max(abs(support[1] - support[0]), 1.) * 1e-6}
         return "near_axis_first_order", physical, numerical, "First-order off-axis expansion; higher radial orders unmodelled; radius is a support restriction, not an error bound."
@@ -804,10 +831,14 @@ def prepare_magnetic_scene(state, *, z_limits_mm=None):
         else:
             field_map = None
             radius = _near_axis_radius_m(provider)
-            support = np.asarray(provider.field_support_mm(), dtype=float) * 1e-3
+            native_support = getattr(provider, "native_field_support_mm", provider.field_support_mm)
+            support = np.asarray(native_support(), dtype=float) * 1e-3
             if support.shape != (2,) or not np.isfinite(support).all() or support[1] <= support[0]:
                 raise ValueError(f"{key}: magnetic provider has no finite axial support")
-            bounds = np.array(((-radius, -radius, support[0]), (radius, radius, support[1])))
+            corners = np.asarray(tuple(product((-radius, radius), (-radius, radius), support)))
+            registration = getattr(provider, "registration", CoordinateRegistration())
+            corners = (corners @ registration.rotation_array.T + registration.origin_array_m)
+            bounds = np.vstack((corners.min(axis=0), corners.max(axis=0)))
             frozen_provider = deepcopy(provider, {id(state): state})
             notes.append(f"{key}: near-axis first-order field, radius <= {radius * 1e3:.6g} mm and 0.1 of the narrowest axial width; higher radial orders are not modelled.")
         bounds[0, 2] = max(bounds[0, 2], z_clip[0])

@@ -76,6 +76,13 @@ field_calibration_status = "provisional_non_oem_principle_model"
 field_calibration_source = "User-directed 100 mm C1 envelope. The preceding 10 mm field half-width is scaled by 100/140 and the 1.5 T maximum by sqrt(140/100), preserving B0^2*a and the isolated integral of Bz^2 at fixed excitation."
 
 mechanical_profile = "magnetic_lens_assembly"
+# Rigid placement: offsets in mm; right-handed rotations in mrad about the mechanical centre.
+offset_x_mm = 0.0
+offset_y_mm = 0.0
+offset_z_mm = 0.0
+rotation_x_mrad = 0.0
+rotation_y_mrad = 0.0
+rotation_z_mrad = 0.0
 mechanical_part_role = "optical_parent"
 field_polarity = 1
 field_polarity_status = "provisional_model_assumption"
@@ -166,6 +173,13 @@ mechanical_overlap_role = "container"
 mechanical_overlap_reason = "Nested mechanical envelope inside the Objective Lens assembly."
 
 mechanical_profile = "magnetic_lens_assembly"
+# Rigid placement: offsets in mm; right-handed rotations in mrad about the mechanical centre.
+offset_x_mm = 0.0
+offset_y_mm = 0.0
+offset_z_mm = 0.0
+rotation_x_mrad = 0.0
+rotation_y_mrad = 0.0
+rotation_z_mrad = 0.0
 mechanical_access_geometry_source_urls = ["https://assets.thermofisher.com/TFS-Assets/MSD/Datasheets/Themis-Z-Datasheet.pdf", "https://documents.thermofisher.com/TFS-Assets/MSD/Datasheets/Themis-S-TEM-Datasheet.pdf", "https://documents.thermofisher.com/TFS-Assets/MSD/Datasheets/spectra-ultra-ds0361-materials-science-datasheet.pdf", "https://www.thermofisher.com/us/en/home/electron-microscopy/products/transmission-electron-microscopes/spectra/instruments/spectra-200-tem.html"]
 mechanical_access_geometry_source = "Symmetric wide-gap objective reconstruction: public reference designs specify a 5.4 mm pole gap and couple a wide-gap objective to a >4.45 sr EDS array. The 8.0 mm pole-tip OD and 27.5584 mm nose are a non-OEM centre-ray clearance design: the conical surface is parallel to the 32.06 degree user-dataset reference ray and leaves 0.3109 mm radial clearance in the axisymmetric meridional model. This does not establish clearance for the unpublished reference-detector active-face/collimator shape or its complete solid-angle acceptance. Dimensions other than the 5.4 mm anchor are simulator assumptions, not OEM measurements."
 mechanical_access_geometry_status = "engineering_reconstruction_not_oem"
@@ -224,6 +238,13 @@ field_calibration_status = "provisional_non_oem_principle_model"
 field_calibration_source = "User-directed 200 mm C2 envelope. The preceding 10 mm field half-width is scaled by 200/160 and the 1.5 T maximum by sqrt(160/200), preserving B0^2*a and the isolated integral of Bz^2 at fixed excitation."
 
 mechanical_profile = "magnetic_lens_assembly"
+# Rigid placement: offsets in mm; right-handed rotations in mrad about the mechanical centre.
+offset_x_mm = 0.0
+offset_y_mm = 0.0
+offset_z_mm = 0.0
+rotation_x_mrad = 0.0
+rotation_y_mrad = 0.0
+rotation_z_mrad = 0.0
 mechanical_part_role = "optical_parent"
 field_polarity = 1
 field_polarity_status = "provisional_model_assumption"
@@ -322,6 +343,13 @@ parent_key = "objective_lens"
 
 pole_piece_topology = "two_pole_single_gap"
 mechanical_profile = "magnetic_lens_assembly"
+# Rigid placement: offsets in mm; right-handed rotations in mrad about the mechanical centre.
+offset_x_mm = 0.0
+offset_y_mm = 0.0
+offset_z_mm = 0.0
+rotation_x_mrad = 0.0
+rotation_y_mrad = 0.0
+rotation_z_mrad = 0.0
 nested_lens_parent_key = "objective_lens"
 mechanical_coil_radial_thickness_mm = 8.5
 mechanical_part_role = "optical_parent"
@@ -486,6 +514,13 @@ mechanical_outer_diameter_mm = 180.0
 vacuum_inner_diameter_mm = 18
 optical_reference_local_z_mm = 465.0
 mechanical_profile = "magnetic_lens_assembly"
+# Rigid placement: offsets in mm; right-handed rotations in mrad about the mechanical centre.
+offset_x_mm = 0.0
+offset_y_mm = 0.0
+offset_z_mm = 0.0
+rotation_x_mrad = 0.0
+rotation_y_mrad = 0.0
+rotation_z_mrad = 0.0
 mechanical_part_role = "optical_parent"
 mechanical_coil_radial_thickness_mm = 30.0
 field_polarity = 1

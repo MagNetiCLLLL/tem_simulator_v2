@@ -9,30 +9,46 @@ import numpy as np
 import pytest
 import tomli_w
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QFileDialog, QLabel
 
 from temsim.gui.sample_panel import SamplePage
 from temsim.optics.column import default_state
 from specimen_inputs import SI_CIF, imported_sample
 from temsim.specimen.rutherford import resolve_tail_material
+from temsim.specimen.source import active_cif_path, validate_sample_source
 
 
-def test_default_vacuum_and_successful_import_do_not_run_calculations(qtbot):
+def test_import_retains_vacuum_until_source_is_selected_and_can_be_reused(qtbot, monkeypatch):
     page, state = _page(qtbot)
     assert [page.mode.itemData(i) for i in range(page.mode.count())] == ["vacuum", "atomic"]
     assert not hasattr(page, "preset")
     assert not hasattr(page, "refresh_references")
     assert page.cif_browse.isEnabled() and not page.inserted.isEnabled()
     assert not state.sample.inserted
-    changes = []
+    changes, calculations, dialogs = [], [], []
     page.parameters_changed.connect(changes.append)
-    page.cif_path.setText(str(SI_CIF))
-    page._cif_edited()
-    assert state.sample.specimen_mode == "atomic" and state.sample.inserted
+    page.calculation_requested.connect(lambda: calculations.append(True))
+
+    def choose_cif(*args):
+        dialogs.append(True)
+        return str(SI_CIF), ""
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", choose_cif)
+    page.cif_browse.click()
+    assert state.sample.specimen_mode == "vacuum" and not state.sample.inserted
     assert state.sample.cif_path == str(SI_CIF)
-    assert page.mode.currentData() == "atomic"
+    assert active_cif_path(state.sample) == ""
+    assert page.mode.currentData() == "vacuum"
+    assert "CIF retained: Si.cif" in page.source_note.text()
+    assert not page.apply_zone.isEnabled()
     assert changes == ["sample.cif_path"]
     page.show()
+    qtbot.waitUntil(lambda: page._snapshot is not None)
+    assert page._snapshot.mode == "vacuum"
+    assert page._snapshot.atomic_numbers.size == 0
+    page.mode.setCurrentIndex(page.mode.findData("atomic"))
+    assert state.sample.specimen_mode == "atomic" and state.sample.inserted
+    assert page.apply_zone.isEnabled()
     qtbot.waitUntil(lambda: page._snapshot is not None and page._snapshot.atomic_numbers.size > 0)
     assert set(page._snapshot.atomic_numbers) == {14}
     page.mode.setCurrentIndex(page.mode.findData("vacuum"))
@@ -42,6 +58,13 @@ def test_default_vacuum_and_successful_import_do_not_run_calculations(qtbot):
     assert page._snapshot.atomic_numbers.size == 0
     assert "no specimen interactions" in page.scene_status.text()
     assert "Vacuum sample" in page.full_sample_label.text()
+    assert state.sample.cif_path == str(SI_CIF)
+    page.mode.setCurrentIndex(page.mode.findData("atomic"))
+    qtbot.waitUntil(lambda: page._snapshot.mode == "atomic")
+    assert set(page._snapshot.atomic_numbers) == {14}
+    assert dialogs == [True]  # Only the explicit Open CIF click opens a dialog.
+    assert calculations == []
+    assert changes == ["sample.cif_path"] + ["sample.specimen_mode"] * 3
 
 
 def test_failed_import_preserves_existing_source_and_does_not_invalidate(qtbot, tmp_path):
@@ -62,17 +85,50 @@ def test_failed_import_preserves_existing_source_and_does_not_invalidate(qtbot, 
     assert page.cif_path.text() == before.cif_path
 
 
-def test_cancelled_import_stays_vacuum_and_clear_import_returns_to_vacuum(qtbot, monkeypatch):
-    from PySide6.QtWidgets import QFileDialog
+def test_selecting_unconfigured_cif_does_not_open_a_dialog_or_silently_use_vacuum(qtbot, monkeypatch):
     page, state = _page(qtbot)
-    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: ("", ""))
+    dialogs = []
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: dialogs.append(True))
     page.mode.setCurrentIndex(page.mode.findData("atomic"))
-    assert page.mode.currentData() == state.sample.specimen_mode == "vacuum"
+    assert dialogs == []
+    assert page.mode.currentData() == state.sample.specimen_mode == "atomic"
+    assert state.sample.inserted
+    assert "Use Open CIF" in page.source_note.text()
+    with pytest.raises(ValueError, match="Import a CIF"):
+        validate_sample_source(state.sample)
+    page.mode.setCurrentIndex(page.mode.findData("vacuum"))
+    validate_sample_source(state.sample)
+    assert dialogs == []
+
+
+@pytest.mark.parametrize("mode,inserted", [("vacuum", False), ("atomic", True), ("atomic", False)])
+def test_open_cancel_replace_and_clear_preserve_source_and_holder(qtbot, monkeypatch, mode, inserted):
+    state = default_state()
+    state.sample.specimen_mode = mode
+    state.sample.inserted = inserted
+    page, _ = _page(qtbot, state)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: ("", ""))
+    before = deepcopy(state.sample)
+    changes = []
+    page.parameters_changed.connect(changes.append)
+    page.cif_browse.click()
+    assert state.sample == before
+    assert changes == []
     page.cif_path.setText(str(SI_CIF))
     page._cif_edited()
+    assert state.sample.specimen_mode == mode and state.sample.inserted == inserted
+    assert state.sample.cif_path == str(SI_CIF)
+    page.cif_browse.click()
+    assert state.sample.cif_path == str(SI_CIF)
+    assert changes == ["sample.cif_path"]
+    from specimen_inputs import AU_CIF
+    page.cif_path.setText(str(AU_CIF))
+    page._cif_edited()
+    assert state.sample.specimen_mode == mode and state.sample.inserted == inserted
+    assert state.sample.cif_path == str(AU_CIF)
     page.cif_path.clear()
     page._cif_edited()
-    assert state.sample.specimen_mode == "vacuum" and not state.sample.inserted
+    assert state.sample.specimen_mode == mode and state.sample.inserted == inserted
     assert not state.sample.cif_path
 
 

@@ -80,7 +80,8 @@ def _prepare_column(state, start, stop, maximum_step_mm):
     from temsim.physics.wave_field_admission import require_supported_column_wave_fields
     require_supported_column_wave_fields(state, start, stop, plan)
     if plan.mapped_fields:
-        raise ValueError("Installed 3-D field maps need their non-polynomial wave Hamiltonian; no linear substitute is allowed")
+        raise ValueError("Displaced/tilted magnetic lenses and 3-D field maps currently require particle/ray transport. "
+                         "The coherent column-wave solver does not yet include their spatial field Hamiltonian.")
     if np.any(plan.thin_power_m1) or np.any(plan.thin_rotation_rad):
         raise ValueError("Unexecuted equivalent image maps are not admitted")
     axis, _, radii = _expanded_profile_axis(plan.z_mm, walls)

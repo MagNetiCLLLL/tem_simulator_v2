@@ -30,8 +30,8 @@ def test_page_capture_preserves_physical_settings_and_incident_identity():
 
 def test_readout_intent_has_distinct_request_identity():
     raw = {"request": "physical", "incident": "executed-prefix", "column": "column"}
-    signatures = [workflow_signatures(raw, key) for key in ("full", "rays", "sample", "eds", "stem")]
-    assert len({entry["request"] for entry in signatures}) == 5
+    signatures = [workflow_signatures(raw, key) for key in ("full", "rays", "sample", "eds", "stem", "receiver")]
+    assert len({entry["request"] for entry in signatures}) == 6
     assert {entry["incident"] for entry in signatures} == {"executed-prefix"}
     assert raw == {"request": "physical", "incident": "executed-prefix", "column": "column"}
 
@@ -40,7 +40,7 @@ def test_wave_gate_is_preserved_only_for_requested_wave_product():
     from temsim.physics.source_admission import UnsupportedWaveSource
     state = default_state()
     state.sample.wave_enabled = True
-    for workflow in ("rays", "sample", "eds", "sample_region", "energy_filter"):
+    for workflow in ("rays", "sample", "eds", "sample_region", "energy_filter", "receiver"):
         admit_workflow(state, workflow)
     with pytest.raises(UnsupportedWaveSource):
         admit_workflow(state, "imaging")

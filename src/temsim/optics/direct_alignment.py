@@ -44,7 +44,7 @@ from temsim.physics.first_order import (
     trace_transverse_transfer,
     trace_transverse_transfers,
 )
-from temsim.physics.lens_field_provider import active_mapped_providers
+from temsim.physics.lens_field_provider import active_vector_providers
 from temsim.physics.instrument_magnetic import (
     active_column_events, column_dipole_fields, events_overlapping_interval, gun_paraxial_fields,
 )
@@ -262,14 +262,14 @@ def canonical_transfers(
             )
         return result
 
-    if (not stable_axisymmetric or active_mapped_providers(state)
+    if (not stable_axisymmetric or active_vector_providers(state)
             or electric_field is not None or target == source):
         source_b = float(fields(np.asarray((source,)), state)[0][0])
         momentum = _column_reference_momentum(state, source, electric_field)
         # A field encountered only after an earlier target must not switch that
         # target away from the solver used for an individual selected-Z query.
         prefix = []
-        if stable_axisymmetric and not active_mapped_providers(state) and electric_field is not None:
+        if stable_axisymmetric and not active_vector_providers(state) and electric_field is not None:
             prefix = [z for z in targets if electric_field.is_constant_on_interval(source, z)]
         result = canonical_from_mechanical(
             -E * source_b / (2.0 * momentum),
@@ -592,7 +592,7 @@ class _LiveFirstOrderModel:
         self.state = state
         self.variable_keys = tuple(variable_keys)
         self._electric_field = _active_column_electric_field(state, source_z_mm, target_z_mm)
-        self.full_field_transfer = bool(active_mapped_providers(state) or self._electric_field is not None)
+        self.full_field_transfer = bool(active_vector_providers(state) or self._electric_field is not None)
         self.maximum_step_mm = float(step_mm)
         self.z_mm = _piecewise_endpoint_exact_grid(
             source_z_mm, target_z_mm, step_mm, capture_z_mm

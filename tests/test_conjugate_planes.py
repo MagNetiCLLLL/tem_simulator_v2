@@ -214,7 +214,7 @@ def test_generalized_canonical_observer_preserves_specimen_wrapper_and_reference
     state = SimpleNamespace(sample=SimpleNamespace(z_mm=1000.), step_mm=.1,
                              beam_voltage_kv=300.)
     monkeypatch.setattr(da, "_active_column_electric_field", lambda *_: None)
-    monkeypatch.setattr(da, "active_mapped_providers", lambda *_: ())
+    monkeypatch.setattr(da, "active_vector_providers", lambda *_: ())
     monkeypatch.setattr(da, "fields", lambda z, _: (np.zeros(len(z)),)*3)
     monkeypatch.setattr(da, "gun_paraxial_fields", lambda _, z: (np.zeros(len(z)),)*2)
     monkeypatch.setattr(da, "skew_quadrupole_field", lambda z, _: np.zeros(len(z)))

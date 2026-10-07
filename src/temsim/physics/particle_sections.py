@@ -263,7 +263,7 @@ def _prefix_matches(old, new, old_index, new_index):
         before, after = old_maps.get(key), new_maps.get(key)
         if before is not None and after is not None and before.fingerprint == after.fingerprint:
             continue
-        if any(item is not None and item.field_map.field_support_mm[0] <= boundary
+        if any(item is not None and item.field_support_mm[0] <= boundary
                for item in (before, after)):
             return False
     return True

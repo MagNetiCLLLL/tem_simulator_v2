@@ -272,6 +272,18 @@ def _describe_parameter_impact(part, path, *, by_key=None, simulation_mode="idea
         return _impact("unknown", "Source part not connected", "The parameter's source part is unavailable; its physical route needs verification.")
     from temsim.optics.electron_gun.tip_assembly import is_tip_part, PART_FIELDS
     connected = simulation_mode in MODE_BY_KEY and MODE_BY_KEY[simulation_mode].available
+    from temsim.lens_pose import PHYSICAL_POSE_FIELDS, supports_physical_lens_pose
+    physical_pose = (kind == "parts" and supports_physical_lens_pose(row) and
+                     (field in PHYSICAL_POSE_FIELDS or
+                      (field == "model_3d" and len(path) >= 5 and path[3] == "transform"
+                       and path[4] in {"offset_mm", "rotation_deg"})))
+    if physical_pose:
+        return _impact("active" if connected else "unknown", "Physical magnetic lens placement",
+                       "The rigid offset and rotation move the lens magnetic field with its physical assembly and child hardware. "
+                       "Rotations are applied about the physical assembly centre; new rotation inputs use mrad. "
+                       "Field strength remains prescribed by the active excitation/field model, not inferred from winding thickness.",
+                       effects=("geometry", "magnetic_field", "beam_clearance"),
+                       results=("3d_preview", "physical_layout", "magnetic_field", "ray_transport", "beam_transmission"))
     if connected and kind == "parts" and row.get("key") == "feg_accelerator" and field == "electrode_thickness_mm":
         return _impact("active", "Accelerator conducting boundary",
                        "Each ring's thickness enters the connected tip-to-anode electrostatic boundary and field cache identity for the curved-tip particle source.",
@@ -294,8 +306,9 @@ def _describe_parameter_impact(part, path, *, by_key=None, simulation_mode="idea
                        effects=("geometry", "electric_field", "operating"), results=("3d_preview", "ray_transport", "beam_transmission"))
     if field == "model_3d":
         return _impact("unsupported", "CAD display only",
-                       "The saved model_3d base, transforms and hole/slot features change the 3D mesh only. "
-                       "They are not consumed by beam clipping, magnetic FEM or field-map geometry identity; no electrical/thermal coupling is inferred.",
+                       "The saved model_3d base, scale and hole/slot features change the 3D mesh only. "
+                       "These shape edits are not consumed by beam clipping, magnetic FEM or field-map geometry identity; no electrical/thermal coupling is inferred. "
+                       "Rigid offsets/rotations on supported magnetic assemblies are handled separately by physical lens placement.",
                        effects=("display",), results=("3d_preview",))
     if simulation_mode not in MODE_BY_KEY or not MODE_BY_KEY[simulation_mode].available:
         return _impact("unknown", "Simulation context not connected",
@@ -429,6 +442,15 @@ def _cad_leaf_paths(value, prefix="model_3d"):
     return (prefix,)
 
 
+def _ignored_cad_paths(part, prefix="model_3d"):
+    from temsim.lens_pose import supports_physical_lens_pose
+    paths = _cad_leaf_paths(part["model_3d"], prefix) if "model_3d" in part else ()
+    if supports_physical_lens_pose(part):
+        paths = tuple(path for path in paths if not path.startswith((
+            prefix + ".transform.offset_mm", prefix + ".transform.rotation_deg")))
+    return paths
+
+
 def component_impact_summary(part, *, by_key=None, simulation_mode="ideal", descriptors=None):
     """Compact component report, including every CAD field ignored by physics."""
     row = _row(part)
@@ -436,7 +458,7 @@ def component_impact_summary(part, *, by_key=None, simulation_mode="ideal", desc
                         row, ("parts", row.get("key", ""), field), by_key=by_key,
                         simulation_mode=simulation_mode, descriptors=descriptors))
                     for field in row if field not in {"key", "name", "parent_key", "order", "branch"})
-    ignored = _cad_leaf_paths(row["model_3d"]) if "model_3d" in row else ()
+    ignored = _ignored_cad_paths(row)
     index = {str(key): _row(value) for key, value in (by_key or {}).items()}
     key = str(row.get("key", ""))
     index[key] = row
@@ -456,7 +478,7 @@ def component_impact_summary(part, *, by_key=None, simulation_mode="ideal", desc
         displayed.update(more)
     for name in sorted(displayed - {key}):
         if "model_3d" in index[name]:
-            ignored += _cad_leaf_paths(index[name]["model_3d"], f"parts.{name}.model_3d")
+            ignored += _ignored_cad_paths(index[name], f"parts.{name}.model_3d")
     known = [impact for _, impact in impacts if impact.status != "unknown"]
     status = ("configuration_required" if any(item.status == "configuration_required" for item in known)
               else "active" if any(item.active for item in known)

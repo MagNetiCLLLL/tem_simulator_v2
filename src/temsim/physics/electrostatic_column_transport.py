@@ -200,7 +200,8 @@ def _compiled_electric_data(field):
 
 
 def _vector_reference(inputs, z, electric, energy, optical_invariant, initial_time,
-                      mapped_fields, step_operator, defer_nonfinite, cancel_check):
+                      mapped_fields, step_operator, defer_nonfinite, cancel_check,
+                      posed_spherical_kicks=None):
     (kx,ky,hn,hs,b,_,cs,power,rotation,step,x,tx,y,ty,kickx,kicky,save,cp,kxy,bx,by,ref) = inputs
     count = len(x)
     history = np.empty((6,len(save),count)); checkpoints = np.empty((6,len(cp),count))
@@ -235,6 +236,8 @@ def _vector_reference(inputs, z, electric, energy, optical_invariant, initial_ti
             x,y=co*x-si*y,si*x+co*y;tx,ty=co*tx-si*ty,si*tx+co*ty
         tx,ty=tx+kickx[j],ty+kicky[j]
         radial=cs[j]*(x*x+y*y);tx,ty=tx-radial*x,ty-radial*y
+        for kick in (posed_spherical_kicks or {}).get(j, ()):
+            x,tx,y,ty=kick.apply(x,tx,y,ty)
         phi,_=sample(x,y,z[j]); actual_energy=invariant+phi
         if saved<len(save) and j==save[saved]:
             history[:,saved]=x,tx,y,ty,time,actual_energy;saved+=1
@@ -245,7 +248,7 @@ def _vector_reference(inputs, z, electric, energy, optical_invariant, initial_ti
         p,_=pv(oi+phi)
         before=tuple(v.copy() for v in (x,tx,y,ty))
         initial=np.array((x,p*tx-b[a]*y,y,p*ty+b[a]*x))
-        active=tuple(item for item in mapped_fields if item.field_map.field_support_mm[0]<z[j+1]*1e3 and item.field_map.field_support_mm[1]>z[j]*1e3)
+        active=tuple(item for item in mapped_fields if item.field_support_mm[0]<z[j+1]*1e3 and item.field_support_mm[1]>z[j]*1e3)
         def derivative(values,index,di,zz):
             xx,px,yy,py=values
             phi,ef=sample(xx,yy,zz);p,v=pv(oi+phi);_,va=pv(invariant+phi)
@@ -253,13 +256,15 @@ def _vector_reference(inputs, z, electric, energy, optical_invariant, initial_ti
             hu,hv=xx*xx-yy*yy,2.*xx*yy
             fx=-Q*by[di]+Q*ef[:,0]/v;fy=Q*bx[di]+Q*ef[:,1]/v
             if active:
+                from temsim.physics.vector_field_transport import magnetic_slope_derivative
                 points=np.column_stack((xx,yy,np.full(count,zz)))
                 good=np.all(np.isfinite(points),axis=1)
-                magnetic=np.full((count,3),np.nan)
-                if np.any(good):magnetic[good]=sum((item.field_at_global_positions_t(points[good]) for item in active),start=np.zeros((np.count_nonzero(good),3)))
-                mx,my,mz=magnetic.T;factor=Q*np.sqrt(1.+ux*ux+uy*uy)
-                fx+=factor*(uy*mz-(1.+ux*ux)*my+ux*uy*mx)
-                fy+=factor*((1.+uy*uy)*mx-ux*mz-ux*uy*my)
+                acceleration=np.full((count,2),np.nan)
+                if np.any(good):
+                    acceleration[good]=magnetic_slope_derivative(active, points[good],
+                        np.column_stack((ux[good],uy[good])),Q/p[good])
+                fx+=p*acceleration[:,0]
+                fy+=p*acceleration[:,1]
             derivatives=np.array((ux,-(ref[0]*kx[index]+b[index]**2/p)*xx-ref[0]*kxy[index]*yy+(b[index]/p)*py-ref[0]*(hn[index]*hu+hs[index]*hv)+fx,
                                   uy,-(ref[0]*ky[index]+b[index]**2/p)*yy-ref[0]*kxy[index]*xx-(b[index]/p)*px+ref[0]*(hn[index]*hv-hs[index]*hu)+fy))
             return derivatives,np.sqrt(1.+ux*ux+uy*uy)/va
@@ -283,7 +288,7 @@ def electrostatic_column_rk4(inputs, *, z_mm, electric_field, initial_kinetic_en
                              optical_reference_invariant_ev=None, initial_time_s=None,
                              backend=BACKEND_CPU, policy='auto', mapped_fields=(),
                              step_operator=None, defer_nonfinite_until_clipping=False,
-                             serial=False, cancel_check=None):
+                             serial=False, cancel_check=None, posed_spherical_kicks=None):
     """Return old ten transport arrays followed by saved/checkpoint energies."""
     count=len(inputs[10]);z=np.ascontiguousarray(z_mm)*1e-3
     energy=np.broadcast_to(np.asarray(initial_kinetic_energy_ev,float),(count,)).copy()
@@ -293,7 +298,7 @@ def electrostatic_column_rk4(inputs, *, z_mm, electric_field, initial_kinetic_en
         raise ValueError('Column entrance kinetic energies must be positive and finite')
     times=np.full(count,np.nan) if initial_time_s is None else np.array(initial_time_s,float,copy=True)
     data=_compiled_electric_data(electric_field)
-    compiled=data is not None and not mapped_fields and step_operator is None
+    compiled=data is not None and not mapped_fields and not posed_spherical_kicks and step_operator is None
     reason=None
     if backend==BACKEND_CUDA and not compiled:
         if policy=='require_gpu':
@@ -338,6 +343,6 @@ def electrostatic_column_rk4(inputs, *, z_mm, electric_field, initial_kinetic_en
         if np.any(error) and not defer_nonfinite_until_clipping:
             raise ValueError('Electric column trajectory left its field domain or positive-energy forward paraxial domain')
     else:
-        history,checkpoints=_vector_reference(inputs,z,electric_field,energy,optical_reference_invariant_ev,times,mapped_fields,step_operator,defer_nonfinite_until_clipping,cancel_check)
+        history,checkpoints=_vector_reference(inputs,z,electric_field,energy,optical_reference_invariant_ev,times,mapped_fields,step_operator,defer_nonfinite_until_clipping,cancel_check,posed_spherical_kicks)
     outputs=(*history[:4],*checkpoints[:4],history[4],checkpoints[4],history[5],checkpoints[5])
     return outputs,backend,reason

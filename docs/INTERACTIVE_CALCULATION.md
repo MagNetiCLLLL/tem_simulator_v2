@@ -23,8 +23,11 @@ These preferences belong to the selected **View > Layouts** entry; see
 Ray Diagram contains **Rays** and **Cached signals** subpages. The latter hosts
 the detached Advanced-bank physical-detector table, with a separate status from
 live tuning. TEM and STEM have no duplicate viewers there: use **Result source**
-in **Illuminating Image** and **Scanning Image > Images**, respectively.
+in **Illuminating Image > Stored wave / reference** and **Scanning Image > Images**, respectively.
 Each viewer independently selects **Current calculation** or **Advanced bank**.
+**Illuminating Image > Camera / screen** separately displays captured physical
+particle reception and explicitly labelled scan previews; see
+[Receiver imaging](RECEIVER_IMAGING.md).
 Preview frames do not redraw or relabel those cached signals.
 Adding a unit fills a read-only **Reference** from the current settings, not a
 stale capture. It can be selected and copied. Minimum/Maximum remain explicit;

@@ -10,6 +10,7 @@ WORKFLOW_LABELS = {
     "sample_region": "Detailed sample paths and X-rays",
     "eds": "EDS spectrum",
     "stem": "STEM detector readout",
+    "receiver": "Camera / screen image",
     "imaging": "Illuminating Image",
     "energy_filter": "Energy Filter",
 }
@@ -52,8 +53,8 @@ def admit_workflow(state, workflow):
     if workflow == "full":
         admit_requested_wave_products(state)
     elif workflow == "imaging":
-        # This page currently implements wave imaging. A classical ray count
-        # is not a substitute for its missing coherent tip-origin state.
+        # Legacy coherent imaging is separate from classical "receiver" work.
+        # Particle counts cannot replace its missing coherent tip-origin state.
         require_gun_wave_source(state, product="Illuminating Image")
     elif workflow == "stem" and bool(getattr(state.sample, "stem_wave_enabled", False)):
         require_gun_wave_source(state, product="STEM wave imaging")

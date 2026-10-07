@@ -139,8 +139,18 @@ def _meaning(part, path, by_key):
     if path and path[0] == "derived" and field == "radial_thickness_mm":
         return "Radial thickness", "physical" if profile in _ANNULAR else "unknown", (
             "Derived radial thickness = (mechanical_outer_diameter_mm − mechanical_inner_diameter_mm) / 2; no independent thickness field is stored.")
+    from temsim.lens_pose import PHYSICAL_POSE_FIELDS, supports_physical_lens_pose
+    if field in PHYSICAL_POSE_FIELDS and supports_physical_lens_pose(part):
+        return label, "placement", (
+            "Physical magnetic assembly placement. Its field and child hardware move together; rotations are "
+            "right-handed X, then Y, then Z about the assembly centre and are stored in mrad. "
+            "The prescribed excitation/field strength is unchanged by this rigid placement.")
     if field == "model_3d":
         name = next((str(item) for item in reversed(path[3:]) if isinstance(item, str)), "model")
+        if supports_physical_lens_pose(part) and len(relative) >= 3 and relative[1] == "transform" and relative[2] in {"offset_mm", "rotation_deg"}:
+            return "Physical lens placement: " + name.replace("_", " "), "placement", (
+                "Legacy rigid lens placement, consumed by the physical assembly and magnetic field. "
+                "The editor exposes the same placement through scalar offsets in mm and rotations in mrad.")
         return "3D model: " + _label(name, ("parts", "", name, *[p for p in path[3:] if isinstance(p, int)])), "cad", (
             "Explicit user CAD base, transform or Boolean feature. This controls the 3D solid; the optical/magnetic solver does not infer a new field law from the mesh.")
     if part.get("key") in {CAMERA, FLUORESCENT_SCREEN, *STEM_DETECTOR_KEYS}:

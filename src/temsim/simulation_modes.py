@@ -178,6 +178,12 @@ def nonlinear_mode_issues(state, descriptors=None):
             issues.append(f"{lens.key}: {exc}")
     if operators and any(row != operators[0] for row in operators[1:]):
         issues.append("Joint B-H channels require identical material, mesh and solver settings")
+    from temsim.lens_pose import lens_pose_registration
+    poses = [lens_pose_registration(state, lens.key) for lens in state.lenses
+             if descriptors.get(lens.key, {}).get("solver") == SOLVER]
+    if poses and any(pose != poses[0] for pose in poses[1:]):
+        issues.append("Joint B-H channels require the same rigid placement; independently moved lenses need "
+                      "Analytical Field or a matching 3D field model")
     return tuple(issues)
 
 

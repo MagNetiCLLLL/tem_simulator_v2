@@ -224,6 +224,7 @@ class MainWindow(QMainWindow):
         self.workspace.coherent_beam.state_provider = lambda: self.state
         self.workspace.coherent_beam.source_applier = self._apply_tip_emission
         self.workspace.coherent_beam.set_state(self.state)
+        self.workspace.receiver_imaging.set_state(self.state)
         self.paired_beams = PairedBeamController(lambda: self.state, self,
             artifact_store=self.calculations.artifact_store)
         coherent_page = self.workspace.coherent_beam
@@ -717,6 +718,7 @@ class MainWindow(QMainWindow):
         self.workspace.scan_control.set_state(self.state)
         self.workspace.sample_page.set_state(self.state)
         self.workspace.eds_page.set_state(self.state)
+        self.workspace.receiver_imaging.set_state(self.state)
         self.parameter_panel.refresh_runtime_values()
         self.workspace.mark_high_accuracy_stale()
         self._runtime_parameter_changed(parameter, request_preview=False)
@@ -753,6 +755,7 @@ class MainWindow(QMainWindow):
         self._sync_ray_count_selector()
         self._sync_step_selector()
         self.workspace.vacuum_map.set_state(self.state)
+        self.workspace.receiver_imaging.set_state(self.state)
         self.workspace.physical_layout.set_cell_state(self.state)
         self._refresh_simulation_mode()
         self.workspace.model_inspector.set_state(self.state)
@@ -768,7 +771,7 @@ class MainWindow(QMainWindow):
             self.manifest_editor.root, self.assembly, self._save_model_document,
             geometry_runtime,
         )
-        self.workspace.physical_layout.assembly_3d.set_assembly(self.assembly, geometry_runtime)
+        self.workspace.physical_layout.set_assembly(self.assembly, geometry_runtime)
         self._refresh_parameter_simulation_context()
         # The persisted runtime key predates the explicit TOML part name.
         # Expose the same live object under the active assembly key so the
@@ -1305,6 +1308,7 @@ class MainWindow(QMainWindow):
         cell_part = self.workspace.physical_layout.cell_part(key)
         if cell_part is not None:
             self.workspace.physical_layout.assembly_3d.focus_component(cell_part)
+            self.workspace.physical_layout.rotating_section.focus_component(cell_part)
             self.status_label.setText(f"{cell_part.name} · edit dimensions/materials with Cell / windows")
             return cell_part
         try:
@@ -1316,7 +1320,9 @@ class MainWindow(QMainWindow):
                 key=part.key, label=part.name, module_path=part.source_file,
             ))
         self.parameter_panel.tabs.setCurrentIndex(0 if part.key in self._runtime_targets else 1)
-        if self.workspace.physical_layout.tabs.currentWidget() is self.workspace.physical_layout.section_page:
+        if self.workspace.physical_layout.tabs.currentWidget() in (
+                self.workspace.physical_layout.section_page,
+                self.workspace.physical_layout.rotating_section):
             self.instrument_dock.show()
             self.instrument_dock.raise_()
         self.status_label.setText(f"Selected {part.name} from Physical Layout")
@@ -2127,7 +2133,7 @@ class MainWindow(QMainWindow):
             geometry_runtime.setdefault(key, {}).update(values)
         self._add_tip_render_values(geometry_runtime)
         self.workspace.physical_layout.model_editor.set_runtime_values(geometry_runtime)
-        self.workspace.physical_layout.assembly_3d.set_runtime_values(geometry_runtime)
+        self.workspace.physical_layout.set_runtime_values(geometry_runtime)
         if request_preview:
             self.schedule_preview(parameter)
         else:

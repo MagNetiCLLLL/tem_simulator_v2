@@ -670,6 +670,8 @@ def stage_manifest_text(text, updates, *, validate=True):
     """Return TOML text with targeted section/part fields replaced."""
 
     from temsim.optics.electron_gun.tip_assembly import OPTIONAL_NUMERICAL_FIELDS
+    from temsim.lens_pose import PHYSICAL_POSE_FIELDS
+    optional_fields = set(OPTIONAL_NUMERICAL_FIELDS) | set(PHYSICAL_POSE_FIELDS)
     text = _stage_part_structure(text, updates)
     lines = text.splitlines(keepends=True)
     newline = "\r\n" if "\r\n" in text else "\n"
@@ -689,10 +691,10 @@ def stage_manifest_text(text, updates, *, validate=True):
         try:
             first, last = _assignment_span(lines, start, end, field)
         except ValueError:
-            if len(path) == 3 and path[0] == "parts" and field in OPTIONAL_NUMERICAL_FIELDS:
-                # A linked tip can gain a numerical control absent from older
-                # embedded snapshots. Insert inside the owning part, preserving
-                # comments and unrelated tables. Final validation still applies.
+            if len(path) == 3 and path[0] == "parts" and field in optional_fields:
+                # Optional tip numerics and rigid lens placement are absent
+                # from older manifests. Insert directly in the owning part,
+                # before nested tables, preserving comments and neighbours.
                 lines[start:start] = [f"{field} = {_format_toml_value(value)}{newline}"]
                 continue
             raise
@@ -720,6 +722,7 @@ def validate_document(document):
     from temsim.optics.shared_deflectors import resolve_shared_deflector_parts
     from temsim.optics.electron_gun.tip_assembly import validate_tip_part, validate_electrical_defaults
     from temsim.magnetic_circuits import is_custom_mechanical_part
+    from temsim.lens_pose import validate_physical_lens_pose
     document = dict(resolve_shared_deflector_parts(document))
     document["parts"] = [
         (
@@ -749,6 +752,7 @@ def validate_document(document):
     validate_electrical_defaults(parts)
     for part in parts:
         validate_tip_part(part)
+        validate_physical_lens_pose(part)
         key = str(part["key"])
         start = float(part["local_start_z_mm"])
         center = float(part["local_center_z_mm"])

@@ -2,6 +2,15 @@
 
 The Sample page separates physical geometry from the local atom display.
 
+`Structure source` selects vacuum or the imported CIF for calculations; changing
+it never opens a file dialog. `Open CIF...` loads or replaces the CIF/MCIF without
+changing the source selection or holder insertion. A CIF can therefore be loaded
+while ray calculations continue to use `Vacuum sample`. Switching back to
+`Imported CIF` reuses the retained file and enables the inserted sample; switching
+to vacuum retains its path, orientation and other settings. If no CIF is loaded,
+the imported-source selection requests one via `Open CIF...` before an inserted
+sample can be calculated. Clearing the file leaves that source selection intact.
+
 - **Blue outline — Full sample:** the complete user-defined disk or rectangular
   envelope, with its diameter/size and physical thickness. The outline is never
   omitted merely because the local calculation region is much smaller.
