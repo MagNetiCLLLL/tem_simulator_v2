@@ -21,7 +21,6 @@
     "tests/test_application_style.py": "historical-unscoped",
     "tests/test_archive_budget_gui.py": "historical-unscoped",
     "tests/test_artifact_quota.py": "historical-unscoped",
-    "tests/test_assembly_illumination.py": "historical-unscoped",
     "tests/test_assembly_model_3d.py": "historical-unscoped",
     "tests/test_assembly_structure.py": "historical-unscoped",
     "tests/test_atomistic_specimen.py": "historical-unscoped",

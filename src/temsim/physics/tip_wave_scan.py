@@ -133,11 +133,13 @@ per-position errors cannot be combined as independent scan noise.
 """
     snapshot = capture_instrument_snapshot(state)
     working = snapshot.restore()
+    scan_preparation = {}
     for row, column, dwell, time, weight in physical_scan_samples(working, numerics):
         if cancelled():
             raise InterruptedError("Physical wave scan cancelled")
         result = simulate_tip_wave(working, replace(request, tip_time_s=time), cancelled=cancelled,
-                                  progress_callback=progress_callback, use_cache=use_cache)
+                                  progress_callback=progress_callback, use_cache=use_cache,
+                                  _scan_preparation_cache=scan_preparation)
         snapshot.restore()
         yield ScanWaveSample(row, column, dwell, time, weight, result)
         del result

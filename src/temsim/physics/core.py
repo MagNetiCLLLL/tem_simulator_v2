@@ -566,6 +566,7 @@ def build_propagation_plan(
     state, z0, z1, events=(), *, include_spherical_aberration=True,
     include_hexapole=True, save_z_mm=(), checkpoint_z_mm=(),
     maximum_step_mm=None, particle_medium=False, medium_energy_ev=None,
+    _diagnostic_dipole_fields=None,
 ):
     """Build the single global axial plan used by full and resumed traces."""
 
@@ -586,7 +587,12 @@ def build_propagation_plan(
     # calibration probes and other independently supplied actions remain kicks.
     remaining_events = list(events)
     dipoles = []
-    for field in column_dipole_fields(state) if events else ():
+    # A local drive Jacobian supplies frozen +/- perturbations of these same
+    # physical providers. Matching still consumes each event exactly once, so
+    # the diagnostic cannot also apply its coil as a centre-plane kick.
+    captured_dipoles = (column_dipole_fields(state) if _diagnostic_dipole_fields is None
+                        else tuple(_diagnostic_dipole_fields)) if events else ()
+    for field in captured_dipoles:
         event = (field.event_z_mm, field.event_dx_rad, field.event_dy_rad)
         for index, supplied in enumerate(remaining_events):
             if tuple(supplied) == event:

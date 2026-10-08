@@ -16,6 +16,7 @@ import numpy as np
 
 from temsim.operating_modes import direct_alignment_by_key
 from temsim.optics.calibration_beam import transmitted_calibration_beam
+from temsim.optics.mini_condenser import MINI_CONDENSER_MODE_CONTROL_SCHEMA
 
 
 CALIBRATION_RAYS = 512
@@ -47,7 +48,7 @@ def _calibration_key(state, mode, definition) -> str:
     # alignment fields and hardware parameters still participate in the key.
     payload = (
         transmitted_settings(state.to_dict()), geometry, mode.key,
-        definition.targets,
+        definition.targets, mode.calibration_status, MINI_CONDENSER_MODE_CONTROL_SCHEMA,
     )
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, default=str).encode("utf-8")

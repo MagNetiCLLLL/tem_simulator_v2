@@ -59,7 +59,7 @@ def test_seeds_preserve_gun_downstream_optics_and_installed_hardware(column, mod
     assert positions == [(p.key, p.start_z_mm, p.end_z_mm) for p in s._resolved_assembly.parts]
     keys = variable_lenses(s, mode)
     assert all(enabled[k] for k in keys)
-    assert keys == ('mini_condenser', 'objective_lens')
+    assert keys == ('condenser_lens_2', 'objective_lens')
 
 
 def test_insufficient_current_is_not_a_valid_fit_residual():
@@ -202,18 +202,30 @@ def test_candidate_polarity_is_detached_and_reported_for_exact_replay(monkeypatc
     class StubCheckpoint:
         prefix_z_mm = 1400.
         def __init__(self, state, keys, step_mm):
-            assert next(l for l in state.lenses if l.key=='mini_condenser').polarity == -1
+            assert next(l for l in state.lenses if l.key=='mini_condenser').polarity == 1
         def measure(self, vector):
             return measurement(1e-6,.0002)
     monkeypatch.setattr(checkpoints,'IlluminationCheckpoint',StubCheckpoint)
     monkeypatch.setattr(module,'measure_surface_focus',lambda *a,**k:measurement(1e-6,.0002))
     state = default_state()
     before = state.to_dict()
-    candidate, report = module.calibrate_illumination(state,'micro_probe',mini_polarity=-1)
-    assert report['polarities']['mini_condenser']==-1
+    candidate, report = module.calibrate_illumination(state,'micro_probe',mini_polarity=1)
+    assert report['polarities']['mini_condenser']==1
+    assert report['mini_condenser_constraint']['magnitude_percent'] == 10.
     assert state.to_dict()==before
     assert candidate is not state
     assert report['status']=='NOT_QUALIFIED'
+
+
+def test_mode_calibration_cannot_override_fixed_cm_magnitude_or_mode_sign():
+    from temsim.optics.assembly_illumination import calibrate_illumination
+    state = default_state()
+    before = state.to_dict()
+    with pytest.raises(ValueError, match='polarity must match'):
+        calibrate_illumination(state, 'micro_probe', mini_polarity=-1)
+    with pytest.raises(ValueError, match='magnitude is fixed'):
+        calibrate_illumination(state, 'nano_probe', controls=('mini_condenser', 'objective_lens'))
+    assert state.to_dict() == before
 
 
 @pytest.mark.parametrize('polarity',[0,2,-2,float('nan')])

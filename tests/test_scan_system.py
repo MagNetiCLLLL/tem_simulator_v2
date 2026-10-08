@@ -45,17 +45,13 @@ def test_ac_pure_shift_calibration_cancels_sample_angle(monkeypatch):
     upper_angle = np.array(((2.0, 0.4), (-0.4, 2.0)))
     lower_angle = np.array(((1.5, -0.2), (0.2, 1.5)))
 
-    def phase_response(_state, start_z_mm, _observation_z_mm):
-        angle = (
-            upper_angle
-            if float(start_z_mm) == pytest.approx(component.upper_z_mm)
-            else lower_angle
-        )
-        return np.zeros((2, 2)), angle
+    def phase_response(_state, _component, _observation_z_mm):
+        return (np.vstack((np.zeros((2, 2)), upper_angle)),
+                np.vstack((np.zeros((2, 2)), lower_angle)))
 
     monkeypatch.setattr(
         scan_geometry,
-        "transverse_kick_phase_space_response",
+        "_coil_phase_responses",
         phase_response,
     )
     state = SimpleNamespace(
@@ -86,10 +82,9 @@ def test_paired_response_uses_both_planes_and_cross_axis_coupling(monkeypatch):
 
     monkeypatch.setattr(
         scan_geometry,
-        "transverse_kick_response",
-        lambda _state, start, _stop: (
-            upper_response if float(start) == 1.0 else lower_response
-        ),
+        "_coil_phase_responses",
+        lambda *_args: (np.vstack((upper_response, np.zeros((2,2)))),
+                        np.vstack((lower_response, np.zeros((2,2))))),
     )
 
     actual = scan_geometry.paired_kick_response(None, component, 3.0)
@@ -134,8 +129,10 @@ def test_descan_cancellation_and_measurement_use_canonical_plane_classification(
     }
     monkeypatch.setattr(
         scan_geometry,
-        "transverse_kick_response",
-        lambda _state, start, _stop: responses[float(start)],
+        "_coil_phase_responses",
+        lambda _state, pair, _stop: (
+            np.vstack((responses[float(pair.upper_z_mm)], np.zeros((2,2)))),
+            np.vstack((responses[float(pair.lower_z_mm)], np.zeros((2,2))))),
     )
     monkeypatch.setattr(
         direct_alignment,
@@ -193,8 +190,9 @@ def test_scan_specimen_boundary_does_not_trace_a_backward_canonical_map(
     assert np.isnan(image_residual) and np.isnan(diffraction_residual)
 
 
+@pytest.mark.parametrize("angle_gain", (0.0, 2.0))
 def test_scan_plane_labels_use_canonical_maps_without_changing_mechanical_raster(
-    monkeypatch,
+    monkeypatch, angle_gain,
 ):
     ac = create_ac_deflector()
     ac.scan_enabled = True
@@ -223,6 +221,11 @@ def test_scan_plane_labels_use_canonical_maps_without_changing_mechanical_raster
             np.array([0.0, 200.0]),
             np.zeros((2, 2, 2)),
         ),
+        "upper_slopes": (
+            np.array([0.0, 200.0]),
+            np.repeat((angle_gain * np.array([[0.0, -1.0], [1.0, 0.0]]))[None], 2, axis=0),
+        ),
+        "lower_slopes": (np.array([0.0, 200.0]), np.zeros((2, 2, 2))),
     }
     monkeypatch.setattr(scan_geometry, "_component_paths", lambda *_args, **_kwargs: paths)
     canonical_calls = []
@@ -246,6 +249,14 @@ def test_scan_plane_labels_use_canonical_maps_without_changing_mechanical_raster
     assert image_geometry.plane_roles["screen"] == "image"
     assert diffraction_geometry.plane_roles["screen"] == "diffraction"
     for geometry in (image_geometry, diffraction_geometry):
+        # A canonical diffraction label must not erase physical scan tilt.
+        # The 2x2 pixel-centre raster spans 1 mrad of command; pair gain is 0.5.
+        assert geometry.sample_mechanical_angle_span_mrad == pytest.approx(
+            (0.5 * angle_gain, 0.5 * angle_gain)
+        )
+        assert geometry.sample_reference_z_mm == 99.0
+        assert geometry.sample_reference_name == "Specimen entrance"
+        assert geometry.calibration_mode == ac.calibration_mode
         assert geometry.plane_roles["entrance_station"] == "upstream"
         assert geometry.plane_roles["centre_station"] == "specimen"
         for key in ("entrance_station", "centre_station"):
@@ -296,6 +307,8 @@ def test_default_column_shared_descan_hardware_and_optical_cancellation():
     assert np.linalg.norm(combined) < 1.0e-15
 
     geometry = scan_geometry.calculate_scan_geometry(state)
+    assert geometry.sample_mechanical_angle_span_mrad == pytest.approx((0.0, 0.0), abs=1e-9)
+    assert geometry.sample_reference_z_mm == pytest.approx(state.sample.z_mm)
     target_x_um, target_y_um = geometry.plane_positions_um[
         calibration.target_key
     ]
@@ -353,13 +366,9 @@ def test_pixel_pitch_calibrates_axis_aligned_fov_through_active_optics(
     component.scan_pixel_size_nm = 2.0
     component.set_pure_shift_coupling(-np.eye(2), 0.0)
     response_m_per_rad = np.diag((2.0, 4.0))
-    monkeypatch.setattr(scan_geometry, "transverse_kick_phase_space_response",
-                        lambda *_args: (np.zeros((2, 2)), np.eye(2)))
-    monkeypatch.setattr(
-        scan_geometry,
-        "paired_kick_response",
-        lambda *_args, **_kwargs: response_m_per_rad,
-    )
+    monkeypatch.setattr(scan_geometry, "_coil_phase_responses",
+                        lambda *_args: (np.vstack((2*response_m_per_rad, np.eye(2))),
+                                        np.vstack((np.zeros((2,2)), np.eye(2)))))
     state = SimpleNamespace(
         ac_deflector=component,
         sample=SimpleNamespace(z_mm=100.0),

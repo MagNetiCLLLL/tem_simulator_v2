@@ -1,6 +1,6 @@
 """First-order AC scan and image-referenced descan geometry.
 
-This module deliberately stops at beam-position geometry.  Specimen
+This module deliberately stops at first-order beam geometry.  Specimen
 scattering and detector image formation consume the same raster coordinates
 later, without making the scan controls depend on TEM/STEM probe presets.
 """
@@ -13,6 +13,7 @@ import numpy as np
 from temsim.physics.scan_calibration import held, restore_held, sample_reference_z_mm, capture_record
 from temsim.optics.shared_deflectors import shared_channel_enabled
 from temsim.physics.first_order import SPECIMEN_CANONICAL_MOMENTUM
+from temsim.physics.finite_scan_response import finite_scan_responses
 
 from temsim.physics.beam_observation import (
     transverse_kick_phase_space_response,
@@ -85,6 +86,12 @@ class ScanGeometryResult:
     descan_distance_below_sample_mm: float | None = None
     scan_pair_symmetry_error_mm: float | None = None
     unavailable_planes: dict[str, str] = field(default_factory=dict)
+    sample_reference_z_mm: float | None = None
+    sample_reference_name: str | None = None
+    calibration_mode: str | None = None
+    # Peak-to-peak scan-induced mechanical slopes, not absolute beam angle,
+    # convergence semi-angle or an independent optical qualification.
+    sample_mechanical_angle_span_mrad: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -109,7 +116,13 @@ class _CalculatedObservationPlane:
     z_mm: float
 
 
-def calibrate_ac_pure_shift(state):
+def _coil_phase_responses(state, component, observation_z_mm):
+    response = finite_scan_responses(state, component, (float(observation_z_mm),))
+    upper, lower, _ = response.at(observation_z_mm)
+    return upper, lower
+
+
+def calibrate_ac_pure_shift(state, *, _coil_responses=None):
     """Couple the AC foils so their first-order sample angle cancels."""
 
     component = state.ac_deflector
@@ -117,16 +130,9 @@ def calibrate_ac_pure_shift(state):
     if held(state):
         restore_held(state)
         return np.asarray(component.pure_shift_lower_ratio_matrix), _ac_angle_residual(state)
-    _, upper_angle = transverse_kick_phase_space_response(
-        state,
-        float(component.upper_z_mm),
-        sample_z_mm,
-    )
-    _, lower_angle = transverse_kick_phase_space_response(
-        state,
-        float(component.lower_z_mm),
-        sample_z_mm,
-    )
+    upper, lower = (_coil_phase_responses(state, component, sample_z_mm)
+                    if _coil_responses is None else _coil_responses)
+    upper_angle, lower_angle = upper[2:], lower[2:]
     try:
         condition = float(np.linalg.cond(lower_angle))
         if not np.isfinite(condition) or condition > 1.0e12:
@@ -140,8 +146,14 @@ def calibrate_ac_pure_shift(state):
         np.linalg.norm(residual_matrix)
         / max(float(np.linalg.norm(upper_angle)), 1.0e-15)
     )
-    component.set_pure_shift_coupling(lower_from_upper, residual)
-    component.validate()
+    snapshot = dict(component.__dict__)
+    try:
+        component.set_pure_shift_coupling(lower_from_upper, residual)
+        component.validate()
+    except Exception:
+        component.__dict__.clear()
+        component.__dict__.update(snapshot)
+        raise
     return np.asarray(lower_from_upper, dtype=float), residual
 
 
@@ -252,22 +264,13 @@ def _coil_kick_matrices(component):
 
 
 def paired_kick_response(state, component, observation_z_mm):
-    """Map one pair command in radians to position at an observation plane."""
+    """Map a pair command through its actual finite magnetic coil fields."""
 
     observation = float(observation_z_mm)
     require_supported_descan_target(state, observation)
-    upper_response = transverse_kick_response(
-        state,
-        float(component.upper_z_mm),
-        observation,
-    )
-    lower_response = transverse_kick_response(
-        state,
-        float(component.lower_z_mm),
-        observation,
-    )
+    upper, lower = _coil_phase_responses(state, component, observation)
     upper_map, lower_map = _coil_kick_matrices(component)
-    return upper_response @ upper_map + lower_response @ lower_map
+    return upper[:2] @ upper_map + lower[:2] @ lower_map
 
 
 def paired_kick_response_grid(state, component, z_mm) -> np.ndarray:
@@ -284,32 +287,30 @@ def paired_kick_response_grid(state, component, z_mm) -> np.ndarray:
         raise ValueError("Scan response Z coordinates must be finite.")
     require_supported_descan_target(state, float(np.max(requested)))
     response = np.zeros((requested.size, 2, 2), dtype=float)
-    first_foil_z_mm = min(
-        float(component.upper_z_mm),
-        float(component.lower_z_mm),
-    )
-    downstream = requested >= first_foil_z_mm - 1.0e-9
-    if not np.any(downstream):
-        return response
-    paths = _component_paths(
-        state,
-        component,
-        float(np.max(requested[downstream])),
-        save_z_mm=requested[downstream],
-    )
+    finite = finite_scan_responses(state, component, requested)
     upper_map, lower_map = _coil_kick_matrices(component)
-    upper_z, upper_response = paths["upper"]
-    lower_z, lower_response = paths["lower"]
-    for index in np.flatnonzero(downstream):
-        observation = float(requested[index])
-        response[index] = (
-            _matrix_at(upper_z, upper_response, observation) @ upper_map
-            + _matrix_at(lower_z, lower_response, observation) @ lower_map
-        )
+    for index, observation in enumerate(requested):
+        upper, lower, _ = finite.at(observation)
+        response[index] = upper[:2] @ upper_map + lower[:2] @ lower_map
     return response
 
 
 def calibrate_ac_scan_scale(state):
+    """Calibrate finite-coil coupling and FOV as one atomic drive change."""
+    components = [state.ac_deflector]
+    if hasattr(state, "descan_deflector"):
+        components.append(state.descan_deflector)
+    snapshots = [dict(c.__dict__) for c in components]
+    try:
+        return _calibrate_ac_scan_scale(state)
+    except Exception:
+        for component, saved in zip(components, snapshots):
+            component.__dict__.clear()
+            component.__dict__.update(saved)
+        raise
+
+
+def _calibrate_ac_scan_scale(state):
     """Map requested specimen pixel pitch to a two-axis AC coil command.
 
     Raster factors are dimensionless pixel-centre coordinates.  The desired
@@ -327,12 +328,10 @@ def calibrate_ac_scan_scale(state):
         return command, residual
     # Lens excitation and sample Z both move the conjugate planes. Re-solve
     # instead of trusting a component-local flag from an earlier optical state.
-    calibrate_ac_pure_shift(state)
-    response_m_per_rad = paired_kick_response(
-        state,
-        component,
-        sample_reference_z_mm(state),
-    )
+    coil_responses = _coil_phase_responses(state, component, sample_reference_z_mm(state))
+    calibrate_ac_pure_shift(state, _coil_responses=coil_responses)
+    upper_map, lower_map = _coil_kick_matrices(component)
+    response_m_per_rad = coil_responses[0][:2] @ upper_map + coil_responses[1][:2] @ lower_map
     condition = float(np.linalg.cond(response_m_per_rad))
     if not np.isfinite(condition) or condition > 1.0e12:
         raise ValueError(
@@ -396,6 +395,44 @@ def calibrate_descan_image_plane(state) -> DescanCalibrationResult:
         restore_held(state)
         synchronize_scan_raster(ac, descan)
         return _measure_descan(state)
+    return _solve_descan_at_selected_plane(state)
+
+
+def recalibrate_descan_only(state) -> DescanCalibrationResult:
+    """Explicitly update downstream position compensation, keeping held AC.
+
+    Restore the accepted AC ratios and its requested FOV scaling, then solve
+    only Descan in the current fields at ``descan_target_key``. No sample-angle
+    constraint, lens setting, receiver switch or physical host alignment is
+    changed. Logical Descan static bias must be zero: changing its shared coil
+    map would otherwise also change that bias and the linearization reference.
+    The updated held record is what subsequent particle/wave execution and
+    profile loading consume. This operation never switches automatic mode to
+    held or silently retargets AC to the production mechanical-angle condition.
+    """
+    if not held(state):
+        raise ValueError("Descan-only calibration requires a saved held AC calibration")
+    components = state.ac_deflector, state.descan_deflector
+    if not all(shared_channel_enabled(c) and c.scan_enabled for c in components):
+        raise ValueError("Enable AC scan and Descan scan, including their physical hosts, before calibrating Descan")
+    if any(float(getattr(components[1], f"kick_{axis}_mrad")) != 0. for axis in ("x", "y")):
+        raise ValueError("Descan-only calibration requires zero logical Descan static bias; the shared coil coupling would otherwise change that bias")
+    snapshots = [dict(c.__dict__) for c in components]
+    try:
+        restore_held(state, restore_descan=False)
+        result = _solve_descan_at_selected_plane(state)
+        capture_record(state, descan_calibrated=True)
+        return result
+    except Exception:
+        for component, saved in zip(components, snapshots):
+            component.__dict__.clear()
+            component.__dict__.update(saved)
+        raise
+
+
+def _solve_descan_at_selected_plane(state) -> DescanCalibrationResult:
+    """Solve one downstream position constraint using the accepted AC drive."""
+    ac, descan = state.ac_deflector, state.descan_deflector
     snapshot = dict(descan.__dict__)
     try:
         synchronize_scan_raster(ac, descan)
@@ -406,16 +443,8 @@ def calibrate_descan_image_plane(state) -> DescanCalibrationResult:
         )
         target_key, target_name, target_z_mm = _descan_target(state)
         ac_response = paired_kick_response(state, ac, target_z_mm)
-        upper_response = transverse_kick_response(
-            state,
-            float(descan.upper_z_mm),
-            target_z_mm,
-        )
-        lower_response = transverse_kick_response(
-            state,
-            float(descan.lower_z_mm),
-            target_z_mm,
-        )
+        upper_phase, lower_phase = _coil_phase_responses(state, descan, target_z_mm)
+        upper_response, lower_response = upper_phase[:2], lower_phase[:2]
         lower_from_upper, response_residual = (
             _solve_descan_response_match(
                 descan,
@@ -486,8 +515,8 @@ def _solve_descan_response_match(
 
 def _ac_angle_residual(state):
     ac = state.ac_deflector
-    _, upper = transverse_kick_phase_space_response(state, ac.upper_z_mm, sample_reference_z_mm(state))
-    _, lower = transverse_kick_phase_space_response(state, ac.lower_z_mm, sample_reference_z_mm(state))
+    upper_phase, lower_phase = _coil_phase_responses(state, ac, sample_reference_z_mm(state))
+    upper, lower = upper_phase[2:], lower_phase[2:]
     u, l = _coil_kick_matrices(ac)
     return float(np.linalg.norm(upper @ u + lower @ l) / max(np.linalg.norm(upper @ u), 1e-30))
 
@@ -507,9 +536,14 @@ def calibrate_scan_system(state, *, force=False, hold=False, observation_stop_z_
 
     components = state.ac_deflector, state.descan_deflector
     def consumed(component):
-        return bool(shared_channel_enabled(component) and component.scan_enabled and (
-            observation_stop_z_mm is None or min(float(component.upper_z_mm),
-                float(component.lower_z_mm)) <= float(observation_stop_z_mm)))
+        if not (shared_channel_enabled(component) and component.scan_enabled):
+            return False
+        if observation_stop_z_mm is None:
+            return True
+        from temsim.physics.instrument_magnetic import column_dipole_fields
+        supports = [coil.field_support_mm[0] for coil in column_dipole_fields(state)
+                    if str(component.key) in coil.drive_keys]
+        return bool(supports and min(supports) < float(observation_stop_z_mm))
     if observation_stop_z_mm is not None and not any(consumed(component) for component in components):
         return None
     snapshots = [dict(c.__dict__) for c in components]
@@ -614,19 +648,13 @@ def _component_paths(
     save_z_mm=(),
 ):
     require_supported_descan_target(state, stop_z_mm)
+    targets = sorted({float(stop_z_mm), *(float(z) for z in save_z_mm)})
+    response = finite_scan_responses(state, component, targets)
     return {
-        "upper": transverse_kick_response_path(
-            state,
-            float(component.upper_z_mm),
-            float(stop_z_mm),
-            save_z_mm=save_z_mm,
-        ),
-        "lower": transverse_kick_response_path(
-            state,
-            float(component.lower_z_mm),
-            float(stop_z_mm),
-            save_z_mm=save_z_mm,
-        ),
+        "upper": (response.z_mm, response.upper[:, :2]),
+        "lower": (response.z_mm, response.lower[:, :2]),
+        "upper_slopes": (response.z_mm, response.upper[:, 2:]),
+        "lower_slopes": (response.z_mm, response.lower[:, 2:]),
     }
 
 
@@ -668,6 +696,15 @@ def _pair_response_from_paths(
     )
     upper_map, lower_map = _coil_kick_matrices(component)
     return upper_matrix @ upper_map + lower_matrix @ lower_map
+
+
+def _pair_mechanical_slopes_rad(component, kicks_mrad, paths, observation_z_mm):
+    """Read mechanical slopes from the same finite-coil solve as positions."""
+    if paths is None:
+        return np.zeros_like(kicks_mrad, dtype=float)
+    slope_paths = {key: paths[key + "_slopes"] for key in ("upper", "lower")}
+    response = _pair_response_from_paths(component, slope_paths, observation_z_mm)
+    return np.einsum("ij,...j->...i", response, np.asarray(kicks_mrad) * 1.0e-3)
 
 
 def _drift_pivot_z_mm(component) -> float | None:
@@ -794,61 +831,19 @@ def calculate_scan_geometry(state, *, observation_stop_z_mm=None, calibration=No
         )
         if descan_enabled else None
     )
-    if descan_calibration is not None and not held(state) and calibration is None:
-        target_z_mm = float(descan_calibration.target_z_mm)
-        ac_response = _pair_response_from_paths(
-            ac,
-            ac_paths,
-            target_z_mm,
-        )
-        upper_z, upper_path = descan_paths["upper"]
-        lower_z, lower_path = descan_paths["lower"]
-        upper_response = _matrix_at(
-            upper_z,
-            upper_path,
-            target_z_mm,
-        )
-        lower_response = _matrix_at(
-            lower_z,
-            lower_path,
-            target_z_mm,
-        )
-        lower_from_upper, response_residual = (
-            _solve_descan_response_match(
-                descan,
-                ac_response,
-                upper_response,
-                lower_response,
-            )
-        )
-        snapshot = dict(descan.__dict__)
-        try:
-            descan.set_image_plane_coupling(
-                lower_from_upper,
-                response_residual,
-                target_z_mm=target_z_mm,
-                target_key=descan_calibration.target_key,
-            )
-            descan.validate()
-        except Exception:
-            for name, value in snapshot.items():
-                object.__setattr__(descan, name, value)
-            raise
-        descan_calibration = DescanCalibrationResult(
-            target_key=descan_calibration.target_key,
-            target_name=descan_calibration.target_name,
-            target_z_mm=target_z_mm,
-            lower_from_upper=lower_from_upper,
-            response_match_residual=response_residual,
-            conjugacy_residual_m_per_rad=(
-                descan_calibration.conjugacy_residual_m_per_rad
-            ),
-            plane_kind=descan_calibration.plane_kind,
-        )
+    # Display paths consume the accepted target solve. A truncated preview
+    # may stop inside a coil or before the selected target; interpolating its
+    # last row must never recalibrate Descan to that unrelated station.
 
     sample_m = _pair_displacement_m(
         ac, ac_kicks, ac_paths, sample_z_mm
     )
+    sample_slopes_rad = _pair_mechanical_slopes_rad(
+        ac, ac_kicks, ac_paths, sample_z_mm
+    ) + _pair_mechanical_slopes_rad(
+        descan, descan_kicks, descan_paths, sample_z_mm
+    )
+    angle_span_mrad = np.ptp(sample_slopes_rad.reshape(-1, 2), axis=0) * 1.0e3
     plane_positions_um = {}
     plane_names = {}
     plane_roles = {}
@@ -896,6 +891,13 @@ def calculate_scan_geometry(state, *, observation_stop_z_mm=None, calibration=No
         times_s=times_s,
         sample_x_um=sample_m[..., 0] * 1.0e6,
         sample_y_um=sample_m[..., 1] * 1.0e6,
+        sample_reference_z_mm=sample_z_mm,
+        sample_reference_name=(
+            "Specimen entrance" if ac.scan_reference == "sample_entrance"
+            else "Specimen centre"
+        ),
+        calibration_mode=str(ac.calibration_mode),
+        sample_mechanical_angle_span_mrad=tuple(float(v) for v in angle_span_mrad),
         plane_positions_um=plane_positions_um,
         plane_names=plane_names,
         unavailable_planes=unavailable,

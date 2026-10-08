@@ -91,6 +91,9 @@ class TipWaveResult:
     # Physical Z order, not request order. `detector` retains the final-plane
     # readout for old consumers; it is never a sum of different detectors.
     detector_readouts: tuple = ()
+    # instrument_digest remains the immutable request identity. Automatic/held
+    # preparation can resolve private scan matrices before field execution.
+    resolved_scan_identity: str | None = None
 
 
 _STAGES = OrderedDict()
@@ -262,6 +265,7 @@ class TipWaveObservationSession:
         self.__request = request
         self.__use_cache = use_cache
         self.__snapshot = self.__working = self.__instrument_digest = None
+        self.__scan_preparation = {}
         self.__lock = threading.Lock()
 
     def observe(self, z_mm, *, cancelled=lambda: False, progress_callback=None):
@@ -283,7 +287,8 @@ class TipWaveObservationSession:
             if cancelled():
                 raise InterruptedError("Tip wave observation cancelled before execution")
             return _execute_tip_wave(self.__working, request, self.__snapshot, self.__instrument_digest,
-                use_cache=self.__use_cache, cancelled=cancelled, progress_callback=progress_callback)
+                use_cache=self.__use_cache, cancelled=cancelled, progress_callback=progress_callback,
+                scan_preparation_cache=self.__scan_preparation)
         finally:
             self.__lock.release()
             from temsim.physics.wave_device import release_device_memory
@@ -291,7 +296,7 @@ class TipWaveObservationSession:
 
 
 def simulate_tip_wave(state, request=TipWaveRequest(), *, use_cache=True,
-                      cancelled=lambda: False, progress_callback=None):
+                      cancelled=lambda: False, progress_callback=None, _scan_preparation_cache=None):
     """Compute selected stages and observations, preserving mandatory state.
 
 This development product supports arrival-time scan coils and conditional
@@ -305,14 +310,15 @@ retain their established workflows and are not replaced by this entry point.
     working = snapshot.restore()
     try:
         return _execute_tip_wave(working, request, snapshot, snapshot.digest, use_cache=use_cache,
-                                 cancelled=cancelled, progress_callback=progress_callback)
+                                 cancelled=cancelled, progress_callback=progress_callback,
+                                 scan_preparation_cache=_scan_preparation_cache)
     finally:
         from temsim.physics.wave_device import release_device_memory
         release_device_memory()
 
 
 def _execute_tip_wave(working, request, snapshot, instrument_digest, *, use_cache,
-                      cancelled, progress_callback):
+                      cancelled, progress_callback, scan_preparation_cache=None):
     """Execute from privately captured controls, never a replacement beam."""
     def verify():
         snapshot.verify_current_inputs(working)
@@ -368,6 +374,9 @@ def _execute_tip_wave(working, request, snapshot, instrument_digest, *, use_cach
         if end >= boundary:
             raise ValueError(f"The installed energy filter requires its coherent field operator at z={boundary:.9g} mm; "
                              f"the requested path to z={end:.9g} mm cannot skip it")
+    from temsim.physics.scan_preparation import prepare_scan_drives
+    prepare_scan_drives(working, instrument_digest, observation_stop_z_mm=end,
+                        session_cache=scan_preparation_cache)
     if request.stop not in ("plane", "gun_exit"):
         admit_column(gun_end, entrance)
         if target is not None:
@@ -537,7 +546,9 @@ def _execute_tip_wave(working, request, snapshot, instrument_digest, *, use_cach
         if cancelled():
             raise InterruptedError("Virtual-plane wave request cancelled before publication")
         remember_observation(result)
-        return TipWaveResult(result, None, request, cache_hit, instrument_digest)
+        from temsim.physics.scan_preparation import scan_drive_identity
+        return TipWaveResult(result, None, request, cache_hit, instrument_digest,
+                             resolved_scan_identity=scan_drive_identity(working, emission_time_s=epoch))
     if request.stop != "gun_exit":
         result = column(result, entrance)
     if request.stop in ("specimen_exit", "detector"):
@@ -584,4 +595,7 @@ def _execute_tip_wave(working, request, snapshot, instrument_digest, *, use_cach
                     result = stage("detector_transmitted:"+plane.key, lambda: _apply_recording_stop(incident, plane), inputs=(incident.digest,))
                 del incident
     verify()
-    return TipWaveResult(result, readouts[-1] if readouts else None, request, cache_hit, instrument_digest, tuple(readouts))
+    from temsim.physics.scan_preparation import scan_drive_identity
+    return TipWaveResult(result, readouts[-1] if readouts else None, request, cache_hit,
+                         instrument_digest, tuple(readouts),
+                         scan_drive_identity(working, emission_time_s=epoch))

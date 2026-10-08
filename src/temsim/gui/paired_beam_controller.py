@@ -13,6 +13,9 @@ from temsim.gui.calculation_controller import CalculationController
 from temsim.calculation_cache import state_model_signature
 from temsim.instrument_snapshot import capture_instrument_snapshot
 from temsim.specimen.source import specimen_interactions_active
+from temsim.physics.scan_preparation import (
+    copy_resolved_scan_drives, remember_resolved_scan_drives, scan_drive_identity,
+)
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,7 @@ class BeamPairContext:
     particle_model_identity: str
     particle_ray_count: int
     particle_step_mm: float
+    executed_scan_identity: str
 
     def verify_particle(self):
         state = getattr(self.particle_result, "state_snapshot", None)
@@ -35,6 +39,14 @@ class BeamPairContext:
         if (int(emitter.ray_count) != self.particle_ray_count
                 or float(state.step_mm) != self.particle_step_mm):
             raise ValueError("Executed particle numerical inputs do not match this pair")
+        if scan_drive_identity(state) != self.executed_scan_identity:
+            raise ValueError("Executed particle scan drives do not match this pair")
+
+    def verify_wave(self, result):
+        if result.instrument_digest != self.instrument_identity:
+            raise ValueError("Executed wave identity does not match this captured pair")
+        if getattr(result, "resolved_scan_identity", None) != self.executed_scan_identity:
+            raise ValueError("Executed wave scan drives do not match this pair")
 
 
 class PairedBeamController(QObject):
@@ -118,9 +130,23 @@ class PairedBeamController(QObject):
                 self._failed(quality, str(error))
             return
         self._stage = "wave"
+        # Particle preparation resolved automatic/held drives in its private
+        # worker. Carry those actual fields into the wave, not the pre-solve
+        # matrices retained by the immutable original request. The original
+        # snapshot remains authoritative for is_current and cancellation.
+        executed = getattr(result, "state_snapshot", None)
+        if executed is None or state_model_signature(executed) != self._model_identity:
+            self._failed(quality, "Executed particle source or optics do not match this pair")
+            return
+        copy_resolved_scan_drives(executed, self._state)
+        execution_snapshot = capture_instrument_snapshot(self._state)
+        if scan_drive_identity(self._state) != scan_drive_identity(executed):
+            self._failed(quality, "Executed particle scan controls do not match the captured wave")
+            return
+        remember_resolved_scan_drives(self._state, execution_snapshot.digest)
         self.context = BeamPairContext(self.token, self._snapshot.physical_digest,
-            result, sample_active, float(self._state.sample.z_mm), self._snapshot.digest,
-            self._model_identity, self._ray_count, self._step_mm)
+            result, sample_active, float(self._state.sample.z_mm), execution_snapshot.digest,
+            self._model_identity, self._ray_count, self._step_mm, scan_drive_identity(executed))
         try:
             self.context.verify_particle()
         except (ValueError, AttributeError) as error:

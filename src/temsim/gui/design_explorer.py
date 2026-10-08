@@ -402,8 +402,17 @@ class DesignExplorerPage(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
-        layout.addLayout(toolbar)
-        layout.addWidget(self.vertical_splitter, 1)
+        comparisons = QWidget()
+        comparison_layout = QVBoxLayout(comparisons)
+        comparison_layout.setContentsMargins(0, 0, 0, 0)
+        comparison_layout.addLayout(toolbar)
+        comparison_layout.addWidget(self.vertical_splitter, 1)
+        from temsim.gui.condenser_scan_design import CondenserScanDesignPanel
+        self.condenser_scan_design = CondenserScanDesignPanel(self)
+        self.study_tabs = QTabWidget()
+        self.study_tabs.addTab(comparisons, 'Design comparisons')
+        self.study_tabs.addTab(self.condenser_scan_design, 'CM / objective / scan')
+        layout.addWidget(self.study_tabs, 1)
 
         self.capture_a.clicked.connect(
             lambda: self.capture_requested.emit("A")
@@ -470,7 +479,9 @@ class DesignExplorerPage(QWidget):
     def shutdown(self):
         if self._capture_worker is not None:
             self._capture_worker.cancelled.set()
-        return self.experiment_tools.shutdown()
+        design_stopped = self.condenser_scan_design.shutdown()
+        experiments_stopped = self.experiment_tools.shutdown()
+        return design_stopped and experiments_stopped
 
     def retained_roots(self):
         return (self._snapshots, self._history)

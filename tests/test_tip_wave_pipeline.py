@@ -755,12 +755,15 @@ def test_live_observation_session_captures_once_and_keeps_input_state_independen
     session = pipeline.TipWaveObservationSession(state, request)
     assert captures == restores == identities == []
     first = session.observe(start+.8)
+    from temsim.physics.scan_preparation import scan_drive_identity
+    assert first.resolved_scan_identity == scan_drive_identity(state)
     state.lenses[0].percent += .5
     state.sample.z_mm += 1.
     calls.clear()
     second = session.observe(start+.5)
     assert len(captures) == len(restores) == len(identities) == 1
     assert first.instrument_digest == second.instrument_digest
+    assert first.resolved_scan_identity == second.resolved_scan_identity
     assert gun_calls == ["gun"] and second.propagation_cache_hit
     assert start < calls[0][0] < start+.5
     assert second.request.observation_z_mm == start+.5

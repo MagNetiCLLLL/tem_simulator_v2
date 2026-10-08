@@ -41,6 +41,7 @@ from temsim.component_keys import STEM_DETECTOR_KEYS
 from temsim.physics.scan_geometry import (
     SHARED_RASTER_FIELDS,
     calibrate_scan_system,
+    recalibrate_descan_only,
     physical_descan_targets,
     require_supported_descan_target,
 )
@@ -92,14 +93,25 @@ class ScanControlView(QWidget):
         self.summary.setWordWrap(True)
         self.summary.setStyleSheet("color: #0f172a; font-weight: 600;")
         self.summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.summary.setToolTip(
+            "Readouts describe the captured result. Mechanical direction is the ray slope "
+            "(dx/dz, dy/dz). The first-order scan-induced slope span is peak-to-peak over "
+            "the command raster, in mrad; it is not the absolute beam angle, a finite-beam "
+            "average or a wave validation. At a specimen with nonzero magnetic field, "
+            "constant mechanical direction and a stationary canonical diffraction response "
+            "are different requirements because canonical momentum includes vector potential. "
+            "Held records without constraint provenance do not establish a canonical target."
+        )
         scope = QLabel(
             "AC/Descan raster with physical HAADF, DF and BF readout."
         )
         scope.setToolTip(
             "Scan is available in TEM and STEM with both microprobe and "
             "nanoprobe illumination. AC and Descan expose the same raster and "
-            "foil controls. AC is coupled for zero first-order angle at the "
-            "chosen specimen reference; Descan uses the opposite raster command "
+            "foil controls. Automatic AC calibration targets zero first-order change in "
+            "mechanical direction at the chosen specimen reference. Held calibration "
+            "preserves saved drives and may produce mechanical-angle changes. "
+            "Descan uses the opposite raster command "
             "and the selected physical observation plane. Held calibration does "
             "not refit when optics change. Calculated "
             "image/diffraction planes and physical aperture stations are "
@@ -126,6 +138,18 @@ class ScanControlView(QWidget):
         self.descan_target.setObjectName("descanObservationTarget")
         self.calibrate_hold_button = QPushButton("Calibrate and hold")
         self.calibrate_hold_button.setObjectName("calibrateScanAndHold")
+        self.calibrate_hold_button.setToolTip(
+            "Recalculate both AC and Descan, then hold the result. AC uses the "
+            "production mechanical-angle constraint at the specimen; this "
+            "replaces any saved canonical-angle or custom AC calibration.")
+        self.calibrate_descan_button = QPushButton("Calibrate Descan (keep AC)")
+        self.calibrate_descan_button.setObjectName("calibrateDescanKeepAc")
+        self.calibrate_descan_button.setToolTip(
+            "Requires a saved held AC calibration and enabled AC/Descan scans. "
+            "Logical Descan static X/Y bias must be zero; physical host alignment is retained. "
+            "Keep AC and update only Descan to cancel scan-position motion at "
+            "the selected physical observation plane in the current optics. "
+            "This does not impose an angle constraint or change lenses.")
         self.calibration_status = QLabel("Automatic coupling follows the active optics.")
         self.calibration_status.setWordWrap(True)
         self.calibration_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -134,11 +158,13 @@ class ScanControlView(QWidget):
         calibration_form.addRow("Probe scan reference", self.scan_reference)
         calibration_form.addRow("Descan observation plane", self.descan_target)
         calibration_form.addRow(self.calibrate_hold_button)
+        calibration_form.addRow(self.calibrate_descan_button)
         calibration_form.addRow(self.calibration_status)
         self.scan_calibration_mode.currentIndexChanged.connect(lambda: self._scan_calibration_changed("calibration_mode", self.scan_calibration_mode.currentData()))
         self.scan_reference.currentIndexChanged.connect(lambda: self._scan_calibration_changed("scan_reference", self.scan_reference.currentData()))
         self.descan_target.currentIndexChanged.connect(lambda: self._scan_calibration_changed("descan_target_key", self.descan_target.currentData()))
         self.calibrate_hold_button.clicked.connect(self._calibrate_and_hold)
+        self.calibrate_descan_button.clicked.connect(self._calibrate_descan_only)
         for widget, key, name in (
             (self.scan_calibration_mode, "ac_deflector", "calibration_mode"),
             (self.scan_reference, "ac_deflector", "scan_reference"),
@@ -403,7 +429,11 @@ class ScanControlView(QWidget):
             "2 x 2 coupling. The raster clock, pixel count, pixel size and FOV "
             "are shared. Active magnetic lenses can rotate and remap both pairs, "
             "so mechanical symmetry alone does not cancel diffraction motion. "
-            "Use Calibrate and hold to observe focus / pivot sensitivity without automatic correction."
+            "Calibrate and hold recalculates the mechanical-angle AC target. "
+            "To retain an existing held AC constraint while changing downstream optics, "
+            "use Calibrate Descan (keep AC). At nonzero specimen magnetic field, holding "
+            "mechanical direction is not the same requirement as keeping a canonical "
+            "diffraction response stationary."
         )
         pivot_help.setObjectName("scanPivotHelp")
         pivot_help.setWordWrap(True)
@@ -1597,6 +1627,22 @@ class ScanControlView(QWidget):
         finally:
             self._updating = False
 
+    def _calibrate_descan_only(self):
+        if self._state is None or self._updating:
+            return
+        try:
+            recalibrate_descan_only(self._state)
+            self.parameters_changed.emit("scan_calibration.descan_captured")
+        except Exception as exc:
+            self.error.emit(str(exc))
+        self._updating = True
+        try:
+            self._sync_scan_calibration_controls()
+            self._sync_controls(self._state.ac_deflector, self.ac_controls)
+            self._sync_controls(self._state.descan_deflector, self.descan_controls)
+        finally:
+            self._updating = False
+
     def _control_changed(self, prefix: str, field: str, value) -> None:
         if self._updating or self._state is None:
             return
@@ -1625,7 +1671,16 @@ class ScanControlView(QWidget):
                 setattr(other, field, converted)
             if prefix == "ac" and field == "scan_enabled" and converted:
                 component.wobble_enabled = False
-            calibrate_scan_system(self._state)
+            if (prefix == "descan" and field in {"enabled", "scan_enabled"}
+                    and converted and self._state.ac_deflector.calibration_mode == "held"):
+                # Permit the explicit switch before Descan-only calibration.
+                # An AC-only or old-host record must remain non-executable
+                # until that separate action accepts a new downstream solve.
+                from temsim.physics.scan_calibration import restore_held
+                restore_held(self._state, restore_descan=False)
+                component.validate()
+            else:
+                calibrate_scan_system(self._state)
         except Exception as exc:
             for item, snapshot in zip(components, snapshots):
                 for name, original in snapshot.items():
@@ -1969,12 +2024,12 @@ class ScanControlView(QWidget):
         coupling_text = ""
         if result.ac_lower_from_upper is not None:
             coupling = np.asarray(result.ac_lower_from_upper, dtype=float)
-            residual = float(result.ac_angular_residual or 0.0)
+            residual = self._finite_readout(result.ac_angular_residual)
             coupling_text = (
-                " | AC pure-shift lower <- upper "
+                " | AC coupling lower <- upper "
                 f"[[{coupling[0, 0]:.5g}, {coupling[0, 1]:.5g}], "
                 f"[{coupling[1, 0]:.5g}, {coupling[1, 1]:.5g}]], "
-                f"angular residual {residual:.3g}"
+                f"mechanical-angle response residual (dimensionless) {residual}"
             )
         descan_text = ""
         if result.descan_target_z_mm is not None:
@@ -1991,10 +2046,21 @@ class ScanControlView(QWidget):
                 f"{descan_coupling[0, 1]:.5g}], "
                 f"[{descan_coupling[1, 0]:.5g}, "
                 f"{descan_coupling[1, 1]:.5g}]], response residual "
-                f"{float(result.descan_compensation_residual or 0.0):.3g}, "
+                f"{self._finite_readout(result.descan_compensation_residual)} (dimensionless), "
                 "image conjugacy ||J_diff|| "
-                f"{float(result.descan_target_conjugacy_residual_m_per_rad or 0.0):.3g} m/rad"
+                f"{self._finite_readout(result.descan_target_conjugacy_residual_m_per_rad, ' m/rad')}"
             )
+        reference_name = getattr(result, "sample_reference_name", None) or "Specimen reference unavailable"
+        reference_z = self._finite_readout(getattr(result, "sample_reference_z_mm", None), " mm", digits=12)
+        calibration_mode = getattr(result, "calibration_mode", None)
+        calibration_text = {
+            "automatic": "automatic (mechanical-angle target)",
+            "held": "held (constraint provenance unspecified)",
+        }.get(calibration_mode, "unavailable")
+        span = getattr(result, "sample_mechanical_angle_span_mrad", None)
+        angle_span = ("unavailable" if span is None or np.shape(span) != (2,) else
+                      f"X {self._finite_readout(span[0], ' mrad')}, "
+                      f"Y {self._finite_readout(span[1], ' mrad')}")
         if result.pixel_size_nm is None:
             scale_text = "AC pixel scale inactive"
         else:
@@ -2019,8 +2085,10 @@ class ScanControlView(QWidget):
             f"requested raster {result.requested_pixels_x} x "
             f"{result.requested_pixels_y}; preview {preview_x} x "
             f"{preview_y} | {scale_text} | "
-            f"sample-centre span {sample_span_x:.6g} x "
-            f"{sample_span_y:.6g} um | drift-only pivot: "
+            f"captured calibration: {calibration_text} | "
+            f"{reference_name} at Z {reference_z}: position span {sample_span_x:.6g} x "
+            f"{sample_span_y:.6g} um | first-order scan-induced mechanical slope span "
+            f"(peak-to-peak): {angle_span} | drift-only pivot: "
             f"AC {ac_pivot}, Descan {descan_pivot}"
             f"{symmetry_text}{coupling_text}{descan_text}"
             + (" | Unavailable scan planes: " + "; ".join(result.unavailable_planes.values())
@@ -2771,9 +2839,14 @@ class ScanControlView(QWidget):
                 self._stem_auto_range_pending = False
 
     @staticmethod
+    def _finite_readout(value, suffix="", *, digits=6) -> str:
+        return (f"{float(value):.{digits}g}{suffix}"
+                if value is not None and np.isfinite(float(value)) else "unavailable")
+
+    @staticmethod
     def _format_pivot(value: float | None) -> str:
         if value is None:
-            return "none (zero net angle)"
+            return "not defined by the scalar drift model"
         return f"Z={float(value):.6g} mm"
 
     @staticmethod

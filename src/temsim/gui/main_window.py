@@ -68,6 +68,7 @@ from temsim.manifest_editor import ManifestEditor, ManifestTarget
 from temsim.optics.column import default_state
 from temsim.operating_modes import (
     apply_operating_mode_pair,
+    apply_projector_mode,
     compatible_modes,
     direct_alignment_by_key,
 )
@@ -151,6 +152,12 @@ class MainWindow(QMainWindow):
 
         self.assembly_panel = AssemblyPanel(
             self.catalog, self.selection, self
+        )
+        self.assembly_panel.apply_operating_mode_button.setToolTip(
+            "Changing only Image / Diffraction applies stored D/I/P1/P2 strengths "
+            "and preserves the incident optics, source, scan drives and receivers. "
+            "Their conjugacy at the current recording plane requires validation. "
+            "Applying the same selection again reapplies both complete presets."
         )
         self.parameter_panel = ParameterPanel(self)
         self.parameter_panel.tabs.setObjectName("instrumentParameterTabs")
@@ -562,6 +569,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "workspace"):
             return
         self.workspace.hardware_tuning.set_state(self.state)
+        self.workspace.design_explorer.condenser_scan_design.set_state(self.state)
         parts = {part.key: {**part.data, "key": part.key, "parent_key": part.parent_key}
                  for part in getattr(getattr(self, "assembly", None), "parts", ())}
         mode = mode_key(self.state)
@@ -852,6 +860,8 @@ class MainWindow(QMainWindow):
         self._schedule_design_explorer_refresh()
 
     def _design_explorer_tab_changed(self, _index: int) -> None:
+        if self._design_explorer_is_visible():
+            self.workspace.design_explorer.condenser_scan_design.set_state(self.state)
         if self._design_explorer_is_visible() and self._design_explorer_dirty:
             self.design_explorer_timer.start(0)
 
@@ -1642,26 +1652,29 @@ class MainWindow(QMainWindow):
     ) -> None:
         self._invalidate_direct_alignment()
         try:
-            if self.state.nanopulser.installed:
+            current_condenser, current_projector = self._state_operating_mode_keys(self.state)
+            projector_only = (condenser_key == current_condenser
+                              and projector_key != current_projector)
+            if self.state.nanopulser.installed and not projector_only:
                 self._start_operating_preset(
                     self.selection, condenser_key, projector_key
                 )
                 return
-            result = apply_operating_mode_pair(
-                self.state,
-                condenser_key,
-                projector_key,
-                column_name=self.selection.column,
-                recording_name=self.selection.recording,
-            )
-            # Lens strengths do not own geometry, but the calculated objective
-            # image/BFP coordinates depend on excitation and must be refreshed.
-            apply_physical_layout_to_state(self.state)
+            if projector_only:
+                result = apply_projector_mode(self.state, projector_key,
+                    column_name=self.selection.column, recording_name=self.selection.recording)
+                # No topology or Objective change: a geometry refresh is not
+                # needed and must not reinterpret the held incident state.
+            else:
+                result = apply_operating_mode_pair(self.state, condenser_key, projector_key,
+                    column_name=self.selection.column, recording_name=self.selection.recording)
+                # The complete preset can change Objective excitation.
+                apply_physical_layout_to_state(self.state)
             self._refresh_assembly_views()
             self.assembly_panel.set_operating_mode_keys(
                 condenser_key, projector_key
             )
-            details = self.assembly_panel.operating_mode_status.text()
+            details = "" if projector_only else self.assembly_panel.operating_mode_status.text()
             self.assembly_panel.set_operating_mode_status(
                 f"Applied: {result.summary}. {details}"
             )
@@ -2141,6 +2154,7 @@ class MainWindow(QMainWindow):
 
     def _invalidate_direct_alignment(self) -> None:
         self._physical_revision += 1
+        self.workspace.design_explorer.condenser_scan_design.invalidate_current()
         self.workspace.result_readout.set_revision(self._physical_revision)
         self.workspace.hardware_tuning.set_revision(self._physical_revision)
         self._invalidate_operating_preset()

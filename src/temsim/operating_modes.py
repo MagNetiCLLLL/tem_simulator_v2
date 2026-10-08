@@ -4,12 +4,32 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+import math
 from pathlib import Path
 from temsim import input_io
 import tomllib
 
 from temsim.paths import OPERATING_MODE_CONFIG_ROOT
 from temsim.optics.excitation_policy import is_saturated_excitation
+
+
+MINI_CONDENSER_MODE_CONTROL_SCHEMA = "signed_equal_magnitude_v1"
+
+
+def load_mini_condenser_default_excitation_percent() -> float:
+    """Read the single startup magnitude; mode changes preserve live magnitude."""
+    path = OPERATING_MODE_CONFIG_ROOT / "catalog.toml"
+    with input_io.open_input(path) as stream:
+        control = tomllib.load(stream).get("mini_condenser_control", {})
+    if control.get("schema") != MINI_CONDENSER_MODE_CONTROL_SCHEMA:
+        raise ValueError(f"{path}: unsupported Mini Condenser control schema")
+    raw = control.get("default_excitation_percent")
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        raise ValueError(f"{path}: Mini Condenser default magnitude must be numeric")
+    magnitude = float(raw)
+    if not math.isfinite(magnitude) or not 0.0 < magnitude <= 100.0:
+        raise ValueError(f"{path}: Mini Condenser default magnitude must be in (0, 100]")
+    return magnitude
 
 
 @dataclass(frozen=True)
@@ -113,6 +133,19 @@ class AppliedOperatingModes:
             f"{self.condenser.name} + {self.projector.name}"
             + (f": {suffix}" if suffix else "")
         )
+
+
+@dataclass(frozen=True)
+class AppliedProjectorMode:
+    projector: OperatingModeDefinition
+    changed_devices: tuple[str, ...]
+
+    @property
+    def summary(self) -> str:
+        return (f"Stored {self.projector.name} projector strengths applied. "
+                "Current objective and recording-plane conjugacy are unqualified; "
+                "no image focus or diffraction stability was recalculated. "
+                "Scan controls retained; use Calibrate Descan (keep AC) to hold AC at the new target optics.")
 
 
 @lru_cache(maxsize=1)
@@ -411,6 +444,16 @@ def _apply_values(state, mode: OperatingModeDefinition) -> tuple[str, ...]:
     )
 
     targets = runtime_targets(state)
+    mini = targets.get("mini_condenser")
+    controls_mini_mode = (
+        mode.family == "condenser"
+        and mode.key in {"micro_probe", "nano_probe"}
+        and "mini_condenser" in mode.devices
+    )
+    if controls_mini_mode and mini is not None:
+        # Validate before applying any preset values. Old cached definitions
+        # may still carry distinct CM percentages; they are not mode inputs.
+        mini.obj.validate_probe_mode(mode.key)
     changed = []
     for group in (mode.devices, mode.apertures):
         for key, values in group.items():
@@ -420,7 +463,13 @@ def _apply_values(state, mode: OperatingModeDefinition) -> tuple[str, ...]:
                 raise ValueError(
                     f"Operating mode {mode.key!r} references missing device {key!r}"
                 ) from exc
+            if key == "mini_condenser" and controls_mini_mode:
+                target.obj.set_probe_mode(mode.key)
             for field, raw_value in values.items():
+                if key == "mini_condenser" and controls_mini_mode and field in {
+                    "percent", "polarity", "field_polarity", "enabled",
+                }:
+                    continue
                 runtime_field = {
                     "field_polarity": "polarity",
                 }.get(field, field)
@@ -469,6 +518,8 @@ def _apply_operating_mode_pair(
 
     require_compatible(condenser)
     require_compatible(projector)
+    if "mini_condenser" in condenser.devices:
+        state.mini_condenser.validate_probe_mode(condenser.key)
 
     state.illumination_mode = {
         "micro_probe": "TEM",
@@ -549,6 +600,10 @@ def apply_operating_mode_pair(
         for group in (definition.devices, definition.apertures):
             for device_key, values in group.items():
                 obj = targets[device_key].obj
+                if device_key == "mini_condenser" and definition.family == "condenser":
+                    # The mode helper owns the sign even if a historical
+                    # definition omitted an explicit polarity field.
+                    saved.append((obj, "polarity", obj.polarity))
                 for field in values:
                     field = {"field_polarity": "polarity"}.get(field, field)
                     saved.append((obj, field, getattr(obj, field)))
@@ -573,3 +628,41 @@ def apply_operating_mode_pair(
             setattr(obj, field, value)
         state.sync_objective()
         raise
+
+
+def apply_projector_mode(
+    state, projector_key: str, *, column_name: str | None = None,
+    recording_name: str | None = None, catalog: OperatingModeCatalog | None = None,
+) -> AppliedProjectorMode:
+    """Apply stored D/I/P1/P2 strengths while retaining the incident working point.
+
+    This is a projector-mode switch, not a new conjugacy solution. In
+    particular the Objective, physical tip, receiver insertion and held scan
+    record remain owned by the current working point.
+    """
+    projector = mode_by_key(projector_key, catalog or load_operating_mode_catalog())
+    if projector.family != "projector" or projector.key not in {"imaging", "diffraction"}:
+        raise ValueError("A projector switch requires Image or Diffraction")
+    for selected, supported, label in (
+        (column_name, projector.compatible_columns, "column"),
+        (recording_name, projector.compatible_recording_systems, "recording system"),
+    ):
+        if selected is not None and "*" not in supported and selected not in supported:
+            raise ValueError(f"{projector.name} is not compatible with {label} {selected}")
+    allowed = {"diffraction_lens", "intermediate_lens", "projector_lens_1", "projector_lens_2"}
+    if set(projector.devices) - allowed or projector.apertures:
+        raise ValueError("A projector-only preset may change only D/I/P1/P2")
+    from temsim.runtime_parameters import runtime_targets
+    targets = runtime_targets(state)
+    saved = [(targets[key].obj, dict(vars(targets[key].obj))) for key in projector.devices]
+    previous_mode = state.projector_mode
+    try:
+        changed = _apply_values(state, projector)
+        state.projector_mode = {"imaging": "image", "diffraction": "diffraction"}[projector.key]
+    except Exception:
+        for obj, values in saved:
+            obj.__dict__.clear()
+            obj.__dict__.update(values)
+        state.projector_mode = previous_mode
+        raise
+    return AppliedProjectorMode(projector, changed)

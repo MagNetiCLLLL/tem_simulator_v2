@@ -6,15 +6,22 @@ description = "Calculated reference Microprobe/Nanoprobe and Image/Diffraction o
 # field_polarity is the effective signed Bz direction in the source-to-detector
 # +z coordinate. It is independent of the non-negative excitation percentage.
 
+[mini_condenser_control]
+schema = "signed_equal_magnitude_v1"
+# Retain the existing startup magnitude. Switching modes preserves the live
+# magnitude and changes only its sign; these are not calibrated OEM currents.
+default_excitation_percent = 10.0
+control_convention = "Microprobe positive; Nanoprobe negative; equal magnitude. Optical off never means zero current. OEM channel mapping remains uncalibrated."
+
 [[modes]]
 key = "micro_probe"
 name = "Microprobe"
 family = "condenser"
-calibration_status = "retained_not_recomputed_after_aperture_and_gun_integrator_updates"
-calibration_reference = "Historical reference only; not qualified for the revised adaptive particle-gun integrator or the new assembly-specific 2 um / 0.3 mrad target. Preset strengths and reported metrics are retained from the preceding 300 kV non-OEM C3 + Probe Corrector calibration with the C2 aperture at local Z 295 mm. The mechanical aperture plane is now local Z 315 mm."
+calibration_status = "retained_not_recomputed_after_signed_cm_mode_control"
+calibration_reference = "Historical reference only; not qualified after changing CM mode control to preserve live magnitude with opposite signs, for the revised adaptive particle-gun integrator, or for the assembly-specific 2 um / 0.3 mrad target. Other preset strengths and reported metrics are retained from the preceding 300 kV non-OEM C3 + Probe Corrector calibration with the C2 aperture at local Z 295 mm. The mechanical aperture plane is now local Z 315 mm. Historical CM magnitude is no longer applied."
 compatible_columns = ["C3 + Probe Corrector"]
 compatible_recording_systems = ["*"]
-devices = { condenser_lens_1 = { percent = 20.0 }, condenser_lens_2 = { percent = 17.526971067688827 }, condenser_lens_3 = { percent = 34.500911306851144 }, adapter_lens = { percent = 42.0 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 35.0, field_polarity = 1 }, objective_lens = { percent = 68.9801 }, probe_hp2_hexapole = { enabled = true, strength_m3 = 508073.49, orientation_rad = 0.0 }, probe_hp1_hexapole = { enabled = true, strength_m3 = 302372.3317133547, orientation_rad = -0.04234211 } }
+devices = { condenser_lens_1 = { percent = 20.0 }, condenser_lens_2 = { percent = 17.526971067688827 }, condenser_lens_3 = { percent = 34.500911306851144 }, adapter_lens = { percent = 42.0 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { field_polarity = 1 }, objective_lens = { percent = 68.9801 }, probe_hp2_hexapole = { enabled = true, strength_m3 = 508073.49, orientation_rad = 0.0 }, probe_hp1_hexapole = { enabled = true, strength_m3 = 302372.3317133547, orientation_rad = -0.04234211 } }
 apertures = { condenser_aperture_2 = { enabled = true, diameter_mm = 0.10 } }
 targets = { beam_character = "quasi_parallel", maximum_convergence_sem_angle_mrad = 0.3, achieved_convergence_sem_angle_mrad = 0.26614575494115617, achieved_illumination_diameter_95_um = 2.001682266314471, achieved_wavefront_curvature_per_m = -2.839541631496529, c2_aperture_diameter_um = 100.0 }
 
@@ -22,11 +29,11 @@ targets = { beam_character = "quasi_parallel", maximum_convergence_sem_angle_mra
 key = "nano_probe"
 name = "Nanoprobe"
 family = "condenser"
-calibration_status = "retained_not_recomputed_after_gun_integrator_update"
-calibration_reference = "Historical reference only; not qualified for the revised adaptive particle-gun integrator or the new 30 mrad upper-surface target. Original source-based geometric calibration: 300 kV, 100 um C2 aperture at local Z 315 mm (absolute Z 765 mm), sample Z 1599.2 mm, 1000 deterministic emitted rays. C3 sets sample focus; both principal hexapoles and their relative azimuth minimise nonlinear position errors. Canonical RK4 at 0.05 mm, checked at 0.025 mm. Stored 25 mrad working point: 24.625 mrad (95%-current semi-angle). Not an OEM current table or a wave-probe FWHM calibration."
+calibration_status = "retained_not_recomputed_after_signed_cm_mode_control"
+calibration_reference = "Historical reference only; not qualified after changing CM mode control to preserve live magnitude with opposite signs, for the revised adaptive particle-gun integrator, or for the 30 mrad upper-surface target. Historical CM magnitude is no longer applied. Original source-based geometric calibration: 300 kV, 100 um C2 aperture at local Z 315 mm (absolute Z 765 mm), sample Z 1599.2 mm, 1000 deterministic emitted rays. C3 sets sample focus; both principal hexapoles and their relative azimuth minimise nonlinear position errors. Canonical RK4 at 0.05 mm, checked at 0.025 mm. Stored 25 mrad working point: 24.625 mrad (95%-current semi-angle). Not an OEM current table or a wave-probe FWHM calibration."
 compatible_columns = ["C3 + Probe Corrector"]
 compatible_recording_systems = ["*"]
-devices = { condenser_lens_1 = { percent = 51.666666666666664 }, condenser_lens_2 = { percent = 25.25772717253661 }, condenser_lens_3 = { percent = 21.273622908333973 }, adapter_lens = { percent = 86.0039434207 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { percent = 41.5570797718, field_polarity = -1 }, objective_lens = { percent = 68.9801 }, probe_hp2_hexapole = { enabled = true, strength_m3 = 626910.5744377297, orientation_rad = 0.0 }, probe_hp1_hexapole = { enabled = true, strength_m3 = 374822.52529434016, orientation_rad = -0.04231957336232493 } }
+devices = { condenser_lens_1 = { percent = 51.666666666666664 }, condenser_lens_2 = { percent = 25.25772717253661 }, condenser_lens_3 = { percent = 21.273622908333973 }, adapter_lens = { percent = 86.0039434207 }, probe_tl22_lens = { percent = 60.0 }, probe_tl21_lens = { percent = 60.0 }, probe_tl12_lens = { percent = 60.0 }, mini_condenser = { field_polarity = -1 }, objective_lens = { percent = 68.9801 }, probe_hp2_hexapole = { enabled = true, strength_m3 = 626910.5744377297, orientation_rad = 0.0 }, probe_hp1_hexapole = { enabled = true, strength_m3 = 374822.52529434016, orientation_rad = -0.04231957336232493 } }
 apertures = { condenser_aperture_2 = { enabled = true, diameter_mm = 0.10 } }
 targets = { beam_character = "convergent_probe", target_convergence_sem_angle_mrad = 25.0, minimum_convergence_sem_angle_mrad = 3.0, maximum_convergence_sem_angle_mrad = 60.0, achieved_convergence_sem_angle_mrad = 24.6248884796, achieved_waist_offset_nm = -0.00024024, c2_aperture_diameter_um = 100.0, achieved_geometric_rms_radius_nm = 0.1043500125, achieved_geometric_diameter_95_nm = 0.4469295888, achieved_twofold_moment = 0.0725659, achieved_threefold_moment = 0.0109222, calibration_ray_count = 1000, calibration_step_mm = 0.05, validation_step_mm = 0.025, step_waist_difference_nm = 0.03041173 }
 

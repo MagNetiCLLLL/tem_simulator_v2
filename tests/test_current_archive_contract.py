@@ -187,7 +187,9 @@ def test_complete_classical_result_records_roundtrip_without_recomputing(materia
         (), material_cache.eds_spectrum, interaction, {"fixture": True})
     vector = np.array([0., 1.])
     scan = ScanGeometryResult(vector, vector, vector, {"sample": (vector, vector)},
-        {"sample": "Specimen"}, 2, 2, True, False, 0., None)
+        {"sample": "Specimen"}, 2, 2, True, False, 0., None,
+        sample_reference_z_mm=1599.2, sample_reference_name="Specimen entrance",
+        calibration_mode="held", sample_mechanical_angle_span_mrad=(0.01, 0.02))
     scan_paths = ScanRayPathResult({"sample": (vector, vector)}, np.zeros(2), np.zeros(2), 1., 2, 2)
     collection = CollectionAngle(0., 10., (0., 0.), (10., 10.), False)
     detector = DetectorSignal("bf", "BF detector", .5, 1., .5, 2., collection)

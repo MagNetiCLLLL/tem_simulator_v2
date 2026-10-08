@@ -144,9 +144,9 @@ def seed_illumination(state, mode_key):
 def variable_lenses(state, mode_key):
     enabled = {l.key for l in state.lenses if l.enabled}
     if "mini_condenser" in enabled:
-        # Keep the established condenser/corrector relay and its crossovers.
-        # Both overlapping specimen-front fields remain physically executed.
-        keys = ("mini_condenser", "objective_lens")
+        # CM magnitude belongs to the equal-current mode pair. Focus fitting
+        # must not quietly replace it with two unrelated mode excitations.
+        keys = ("condenser_lens_2", "objective_lens")
     elif "condenser_lens_3" in enabled:
         keys = ("condenser_lens_2", "condenser_lens_3")
     else:
@@ -294,6 +294,7 @@ def calibrate_illumination(state, mode_key, *, rays=193, maximum_evaluations=30,
     candidate = original.restore()
     if candidate.electron_gun.source_representation != "classical_particles" or candidate.vacuum_map.enabled:
         raise ValueError("Default calibration requires classical tip emission with vacuum participation off")
+    candidate.mini_condenser.validate_probe_mode(mode_key)
     candidate.electron_gun.emitter.ray_count = int(rays)
     seed_illumination(candidate, mode_key)
     if mini_polarity is not None:
@@ -302,7 +303,9 @@ def calibrate_illumination(state, mode_key, *, rays=193, maximum_evaluations=30,
         mini = next((l for l in candidate.lenses if l.key == 'mini_condenser' and l.enabled), None)
         if mini is None:
             raise ValueError('No installed mini condenser to set polarity')
-        mini.polarity = int(mini_polarity)
+        expected_polarity = 1 if mode_key == 'micro_probe' else -1
+        if mini_polarity != expected_polarity:
+            raise ValueError('Mini condenser polarity must match the mode: + microprobe, - nanoprobe')
     if c2_aperture_mm is not None:
         if not math.isfinite(c2_aperture_mm) or c2_aperture_mm <= 0:
             raise ValueError('The physical C2 aperture diameter must be finite and positive')
@@ -310,6 +313,8 @@ def calibrate_illumination(state, mode_key, *, rays=193, maximum_evaluations=30,
     if not aperture_gate(candidate)['passed']:
         raise ValueError('The physical C2 aperture must be enabled with diameter 20-250 um')
     keys = tuple(controls) if controls is not None else variable_lenses(candidate, mode_key)
+    if 'mini_condenser' in keys:
+        raise ValueError('Mini condenser magnitude is fixed across probe modes; select other focusing lenses')
     lenses = {l.key: l for l in candidate.lenses}
     if len(keys) != 2 or len(set(keys)) != 2 or any(k not in lenses or not lenses[k].enabled
             or lenses[k].z_mm > candidate.sample.z_mm for k in keys):
@@ -319,6 +324,11 @@ def calibrate_illumination(state, mode_key, *, rays=193, maximum_evaluations=30,
     report = dict(status="NOT_QUALIFIED", targets=asdict(target),
         input_digest=original.physical_digest, rays=rays, variable_lenses=keys,
         pending_gates=["gun_step", "particle_sampling", "probe_diameter", "crossover_topology"], attempts=[])
+    mini = next((l for l in candidate.lenses if l.key == 'mini_condenser' and l.enabled), None)
+    report['mini_condenser_constraint'] = (None if mini is None else {
+        'magnitude_percent': float(mini.percent), 'polarity': int(mini.polarity),
+        'fixed_during_fit': True,
+    })
     from temsim.simulation_modes import mode_key as simulation_mode_key
     report['simulation_mode'] = simulation_mode_key(candidate)
     measurements, failures = {}, {}

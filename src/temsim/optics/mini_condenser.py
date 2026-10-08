@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import ClassVar
 
 from temsim import module_manifest
 from temsim.component_keys import MINI_CONDENSER, require_current_lens_key
+from temsim.operating_modes import (
+    MINI_CONDENSER_MODE_CONTROL_SCHEMA,
+    load_mini_condenser_default_excitation_percent,
+)
 from temsim.optics.condenser_lens import AxialFieldTerm
 from temsim.optics.round_lens import (
     RoundLensComponent,
@@ -122,6 +127,49 @@ class MiniCondenserComponent(RoundLensComponent):
     active_installation: str = "integrated"
 
     EXPECTED_KEY: ClassVar[str] = MINI_CONDENSER
+
+    @property
+    def signed_excitation_percent(self) -> float:
+        """Project control sign: Microprobe positive, Nanoprobe negative.
+
+        This is not an OEM current calibration or a standalone focal power.
+        Nanoprobe keeps finite excitation; optical off refers to the coupled
+        CM/objective action, not removal of the CM magnetic field.
+        """
+        return float(self.percent) * int(self.polarity)
+
+    @signed_excitation_percent.setter
+    def signed_excitation_percent(self, value: float) -> None:
+        if isinstance(value, bool):
+            raise ValueError("Mini Condenser signed excitation must be numeric")
+        signed = float(value)
+        if not math.isfinite(signed) or not 0.0 < abs(signed) <= self.max_percent:
+            raise ValueError(
+                "Mini Condenser signed excitation must have a finite nonzero "
+                "magnitude within its configured range; optical off is not zero current"
+            )
+        self.percent = abs(signed)
+        self.polarity = 1 if signed > 0.0 else -1
+
+    def validate_probe_mode(self, mode_key: str) -> float:
+        """Return the requested signed drive without changing the component."""
+        if mode_key not in {"micro_probe", "nano_probe"}:
+            raise ValueError(f"Unsupported Mini Condenser probe mode: {mode_key}")
+        magnitude = float(self.percent)
+        if not self.enabled or not math.isfinite(magnitude) or not 0.0 < magnitude <= self.max_percent:
+            raise ValueError(
+                "Mini Condenser mode switching requires enabled, finite nonzero excitation"
+            )
+        return magnitude if mode_key == "micro_probe" else -magnitude
+
+    def set_probe_mode(self, mode_key: str):
+        """Reverse the control sign; this alone does not qualify probe optics.
+
+        Zero excitation and disabled hardware are rejected explicitly, never
+        interpreted as the optical off state of Nanoprobe.
+        """
+        self.signed_excitation_percent = self.validate_probe_mode(mode_key)
+        return self
 
     def __setattr__(self, name, value):
         ready = self.__dict__.get("_position_coupling_ready", False)
@@ -291,7 +339,7 @@ MINI_CONDENSER_DEFINITION = MiniCondenserDefinition(
     ),
     reference_peak_field_t=0.45,
     field_scale_half_width_mm=8.0,
-    default_excitation_percent=10.0,
+    default_excitation_percent=load_mini_condenser_default_excitation_percent(),
     maximum_excitation_percent=100.0,
     colour="#0097a7",
 )

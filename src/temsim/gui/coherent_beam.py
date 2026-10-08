@@ -248,8 +248,7 @@ class _WaveWorker(QRunnable):
             if self.pair_context is not None and not self.event.is_set():
                 context = self.pair_context
                 try:
-                    if result.instrument_digest != context.instrument_identity:
-                        raise ValueError("Executed wave identity does not match this captured pair")
+                    context.verify_wave(result)
                     from temsim.gui.beam_plane_data import sample_beam_plane
                     from temsim.physics.beam_comparison import compare_beam_planes
                     plane = sample_beam_plane(context.particle_result, result.checkpoint.plane_z_mm)

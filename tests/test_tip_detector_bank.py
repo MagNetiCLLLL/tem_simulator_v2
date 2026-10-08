@@ -6,6 +6,7 @@ No fixture is exposed as a GUI/CLI source or a qualified operating point.
 """
 from collections import Counter
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -25,6 +26,13 @@ def bank(monkeypatch, tmp_path):
     import temsim.physics.inelastic_wave as inelastic
     from test_wave_detector_readout import checkpoint
     state = default_state()
+    state.acceleration_enabled = False
+    state.acceleration_backend = "CPU"
+    # This orchestration fixture explicitly includes the instrumented specimen
+    # stage; the default empty holder correctly takes the vacuum branch.
+    state.sample.specimen_mode = "atomic"
+    state.sample.cif_path = str(Path(__file__).parent/"fixtures"/"cif"/"Si.cif")
+    state.sample.inserted = True
     state.camera.inserted = state.fluorescent_screen.inserted = False
     for detector, inner, outer in zip(state.stem_detectors, (.018, .007, 0.), (.05, .018, .007)):
         detector.inner_diameter_mm = inner

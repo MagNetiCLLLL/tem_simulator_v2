@@ -934,8 +934,8 @@ def test_operating_mode_storage_tracks_calculated_and_retained_values():
     assert by_key["micro_probe"].calibration_status.startswith(
         "retained_not_recomputed_"
     )
-    assert by_key["nano_probe"].calibration_status.startswith(
-        "retained_not_recomputed_after_gun_integrator_update"
+    assert by_key["nano_probe"].calibration_status == (
+        "retained_not_recomputed_after_signed_cm_mode_control"
     )
     assert "non_oem" in by_key["diffraction"].calibration_status
     assert by_key["micro_probe"].targets[

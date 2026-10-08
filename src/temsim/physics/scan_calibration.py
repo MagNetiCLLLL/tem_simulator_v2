@@ -75,29 +75,36 @@ def capture_record(state, *, descan_calibrated: bool):
     return encoded
 
 
-def restore_held(state):
-    """Restore fixed drive ratios, scaling only the requested raster extent."""
+def restore_held(state, *, restore_descan=True):
+    """Restore fixed drive ratios, scaling only the requested raster extent.
+
+    The explicit Descan-only recalibration operation first restores just AC.
+    That path may replace an absent or obsolete downstream calibration without
+    requiring it to be executable. Normal held execution still restores both.
+    """
     ac, descan = state.ac_deflector, state.descan_deflector
     record = validate_record(ac.calibration_record_json)
     if record["reference"] != ac.scan_reference:
         raise ValueError("Scan reference changed. Calibrate and hold at the new specimen plane.")
-    if shared_channel_enabled(descan) and descan.scan_enabled and not record["descan_calibrated"]:
-        raise ValueError("Descan was not calibrated. Enable it and use Calibrate and hold.")
+    if (restore_descan and shared_channel_enabled(descan) and descan.scan_enabled
+            and not record["descan_calibrated"]):
+        raise ValueError("Descan was not calibrated. Enable it and use Calibrate Descan (keep AC).")
     host = getattr(descan, "_physical_host", None)
-    if (host is not None and shared_channel_enabled(descan) and descan.scan_enabled
+    if (restore_descan and host is not None and shared_channel_enabled(descan) and descan.scan_enabled
             and record.get("descan_physical_host_key") != str(host.key)):
-        raise ValueError("The held descan calibration belongs to an older or different physical deflector. Use Calibrate and hold.")
+        raise ValueError("The held descan calibration belongs to an older or different physical deflector. Use Calibrate Descan (keep AC).")
     fov = np.array((ac.scan_field_of_view_x_nm, ac.scan_field_of_view_y_nm))
     command = np.asarray(record["command_mrad"]) * (fov / record["fov_nm"])[None, :]
     snapshots = [dict(c.__dict__) for c in (ac, descan)]
     try:
         ac.set_pure_shift_coupling(record["ac_ratio"])
         ac.set_scan_command_matrix_mrad(command)
-        descan.set_image_plane_coupling(record["descan_ratio"],
-            target_key=record["target_key"], target_z_mm=record["target_z_mm"])
-        descan.set_scan_command_matrix_mrad(-command)
         ac.validate()
-        descan.validate()
+        if restore_descan:
+            descan.set_image_plane_coupling(record["descan_ratio"],
+                target_key=record["target_key"], target_z_mm=record["target_z_mm"])
+            descan.set_scan_command_matrix_mrad(-command)
+            descan.validate()
     except Exception:
         for component, saved in zip((ac, descan), snapshots):
             component.__dict__.clear()

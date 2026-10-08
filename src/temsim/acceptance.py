@@ -124,6 +124,11 @@ ACCEPTANCE_SCOPES = {
             "field-ui/FU-14": ("Physical assembly sections and bounded workspace presentation", (
                 "tests/test_assembly_section.py", "tests/test_assembly_section_page.py",
                 "tests/test_current_page_tabs.py", "tests/test_ray_compact_layout.py")),
+            "field-ui/FU-15": ("Fixed-magnitude signed CM modes and bounded combined-field scan design", (
+                "tests/test_mini_condenser_modes.py", "tests/test_assembly_illumination.py",
+                "tests/test_condenser_objective_design.py", "tests/test_scan_coil_design.py",
+                "tests/test_condenser_scan_design_gui.py", "tests/test_finite_scan_response.py",
+                "tests/test_projector_mode_switch.py")),
         },
     },
     "lens-geometry": {
@@ -202,7 +207,7 @@ ACCEPTANCE_SCOPES = {
                 "tests/test_shared_tip_workflow.py", "tests/test_shared_surface_source.py",
                 "tests/test_surface_wave_integration.py", "tests/test_radial_phase_fem.py")),
             "coherent-development/CW-02": ("Executed upstream waves, exact plane routing and physical absorption", (
-                "tests/test_tip_wave_pipeline.py", "tests/test_column_wave_transport.py",
+                "tests/test_tip_wave_pipeline.py", "tests/test_column_wave_transport.py", "tests/test_scan_preparation.py",
                 "tests/test_wave_checkpoint_publication.py",
                 "tests/test_column_wave_electric.py", "tests/test_tip_gun_wave.py",
                 "tests/test_electrostatic_column_transport.py", "tests/test_wave_grid.py", "tests/test_wave_device.py",

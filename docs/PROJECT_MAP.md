@@ -1,5 +1,35 @@
 # TEM Simulator 项目地图
 
+2026-10-08 CM/物镜/扫描设计：`optics/mini_condenser.py` 统一等幅正负励磁，
+`optics/condenser_objective_design.py` 分析现有合成场、机械位置边界及共同入射条件，
+`optics/scan_coil_design.py` 求解完整双轴 AC 驱动和扫描枢轴，
+`gui/condenser_scan_design.py` 在 Design Explorer 子页面显示候选。
+对应新增测试分别为 `test_mini_condenser_modes.py`、
+`test_condenser_objective_design.py`、`test_scan_coil_design.py`、
+`test_condenser_scan_design_gui.py`。这些是受限一阶设计诊断，不自动改动实时几何，
+也不把控制符号视为已经通过 Microprobe/Nanoprobe 束流验收；详见
+[CM、物镜与扫描说明](stigmator-and-scan.md#cm-objective-and-scan-design)。
+
+2026-10-08 扫描执行修复：`physics/finite_scan_response.py` 用实际有限长度
+偏转场求局部双轴响应，供 `scan_geometry.py` 的 AC/Descan 校准及设计页使用；
+`physics/scan_preparation.py` 在波动工作线程准备并复用同一捕获输入的扫描驱动。
+`gui/paired_beam_controller.py` 把粒子实际使用的校准矩阵交给波动，并核对执行驱动身份。
+新增回归为 `test_finite_scan_response.py` 和 `test_scan_preparation.py`，分别进入
+`field-ui` 与 `coherent-development` 验收范围。局部响应与驱动一致性不替代有限探针
+聚焦、完整样品衍射或实验资格验证。
+
+2026-10-08 投影切换与独立 Descan 校准：`operating_modes.apply_projector_mode()`
+由 `gui/main_window.py` 在 condenser 不变、Image/Diffraction 选择改变时调用，
+仅应用存储的 D/I/P1/P2 强度，保留 Tip、CM/Objective、AC held 记录及接收器状态；
+相同选择再次应用仍重载完整预设。当前 Objective/物理接收面的共轭关系不会自动重解。
+`gui/scan_panel.py` 的 **Calibrate Descan (keep AC)** 显式调用
+`physics.scan_geometry.recalibrate_descan_only()`，保留 held AC（包括已接受的
+canonical pivot 驱动），仅在选定物理接收面重校 Descan 并更新 held 记录。
+STEM 显示倍率由显示尺寸与样品扫描 FOV 决定，不等于样品到屏幕的物理成像倍率。
+回归入口为 `test_projector_mode_switch.py`、`test_held_scan_calibration.py`；
+操作语义不代表有限 FOV 束流或屏幕成像已通过验证，详见
+[投影切换与 held AC](stigmator-and-scan.md#projector-switching-with-held-ac)。
+
 更新日期：2026-09-28。代码基准：`19ff33edc294e1ad316eed19086eb9e92dca12b7`。
 
 2026-09-29 局部更新：第 8.1 节记录当前去重结果，详见 [代码清理验证记录](CODE_CLEANUP_AUDIT_ZH.md)。其余文件数量和行数仍是上述基准的导航快照。
