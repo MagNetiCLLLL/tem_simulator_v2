@@ -72,6 +72,9 @@ GPU_TEST_FUNCTIONS = {
     "test_posed_wave_aperture.py": (
         "test_gpu_uses_same_swept_geometry_and_contacts",
     ),
+    "test_posed_wave_hardware.py": (
+        "test_real_cuda_bore_mask_matches_ray_contacts_and_cpu",
+    ),
     "test_tilted_aperture_column.py": (
         "test_closed_tilted_plate_only_absorbs_local_slab_on_actual_gpu",
         "test_tilted_c2_finite_shoulder_diffraction_cpu_gpu_complex_parity",

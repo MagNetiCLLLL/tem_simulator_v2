@@ -133,7 +133,7 @@ def test_recording_with_electric_field_subtracts_reference_orbit_per_unique_scan
     calls = []
 
     def build(*args, **kwargs):
-        return SimpleNamespace(electric_field=SimpleNamespace())
+        return SimpleNamespace(mapped_fields=(), electric_field=SimpleNamespace())
 
     def execute(working, *_args, **_kwargs):
         calls.append(working.simulation_time_s)

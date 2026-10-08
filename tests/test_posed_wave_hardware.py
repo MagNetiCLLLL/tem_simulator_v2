@@ -172,7 +172,7 @@ def test_factory_recovers_independent_stationary_tube_and_unexcited_tilted_bores
 
 
 def test_real_cuda_bore_mask_matches_ray_contacts_and_cpu():
-    cp = pytest.importorskip("cupy", reason="optional CUDA hardware verification")
+    cp = pytest.importorskip("cupy", reason="optional real CUDA verification requires CuPy")
     try:
         available = cp.cuda.runtime.getDeviceCount()
     except cp.cuda.runtime.CUDARuntimeError:

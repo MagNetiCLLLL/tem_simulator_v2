@@ -301,6 +301,39 @@ def test_gpu_setup_skip_still_requires_completed_teardown_and_device_reason():
     assert evaluate("classical", receipt, allow_gpu_skips=True)["exit_code"] == 1
 
 
+def test_bore_hardware_check_without_cupy_is_optional_only_in_explicit_cpu_lane(monkeypatch):
+    import sys
+    import test_posed_wave_hardware as hardware
+
+    # Exercise the real test's dependency gate even on a machine with CuPy.
+    monkeypatch.setitem(sys.modules, "cupy", None)
+    with pytest.raises(pytest.skip.Exception) as skipped:
+        hardware.test_real_cuda_bore_mask_matches_ray_contacts_and_cpu()
+
+    node = ("tests/test_posed_wave_hardware.py::"
+            "test_real_cuda_bore_mask_matches_ray_contacts_and_cpu")
+    receipt = receipt_for("coherent-development")
+    receipt["collected"].append(node)
+    receipt["cases"][node] = {"setup": "passed", "call": "skipped", "teardown": "passed"}
+    receipt["skip_reasons"] = {node: str(skipped.value)}
+    assert evaluate("coherent-development", receipt)["exit_code"] == 1
+    for reason in (str(skipped.value), "CUDA device unavailable"):
+        receipt["skip_reasons"][node] = reason
+        report = evaluate("coherent-development", receipt, allow_gpu_skips=True)
+        assert report["exit_code"] == 0
+        assert report["allowed_gpu_skips"] == [node]
+        assert report["gpu_hardware"]["status"] == "NOT_RUN"
+        assert report["gpu_hardware"]["not_run"] == [node]
+
+    # Registering this hardware check must not hide numerical or teardown failures.
+    receipt["cases"][node]["call"] = "failed"
+    report = evaluate("coherent-development", receipt, allow_gpu_skips=True)
+    assert report["exit_code"] == 1
+    assert report["gpu_hardware"]["status"] == "FAIL"
+    receipt["cases"][node] = {"setup": "passed", "call": "skipped", "teardown": "failed"}
+    assert evaluate("coherent-development", receipt, allow_gpu_skips=True)["exit_code"] == 1
+
+
 def test_gpu_registry_keeps_cpu_parameters_mandatory_and_matches_existing_tests():
     import ast
     from temsim.acceptance_gpu import GPU_TEST_IDS, GPU_PARAMETER_IDS, is_gpu_hardware_test
