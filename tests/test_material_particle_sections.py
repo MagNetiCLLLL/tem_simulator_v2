@@ -272,20 +272,42 @@ def test_scan_calibration_precedes_consumption_of_reference_kicks(material_case,
 
 
 def test_section_calibration_skips_unconsumed_coils_and_downstream_descan(material_case, monkeypatch):
+    from temsim.component_representation import SHARED_DEFLECTOR_HOSTS
     from temsim.physics import scan_geometry
+    from temsim.physics.instrument_magnetic import column_dipole_fields
     state = material_case.state
     ac, descan = state.ac_deflector, state.descan_deflector
     ac.enabled = ac.scan_enabled = descan.enabled = descan.scan_enabled = True
-    first_ac = min(ac.upper_z_mm, ac.lower_z_mm)
-    first_descan = min(descan.upper_z_mm, descan.lower_z_mm)
-    assert first_ac < first_descan
+    # The drift fixture disables every physical host. Enable the downstream
+    # hardware too, so the Descan assertions exercise an active channel.
+    next(component for component in state.deflectors
+         if component.key == SHARED_DEFLECTOR_HOSTS[descan.key]).enabled = True
+    coils = column_dipole_fields(state)
+    first_ac = min(coil.field_support_mm[0] for coil in coils if ac.key in coil.drive_keys)
+    first_descan = min(coil.field_support_mm[0] for coil in coils if descan.key in coil.drive_keys)
+    ac_centre = min(ac.upper_z_mm, ac.lower_z_mm)
+    assert first_ac < ac_centre - 1. < first_descan
     calls = []
     monkeypatch.setattr(scan_geometry, "calibrate_ac_scan_scale", lambda s: (calls.append("ac") or np.eye(2), 0.))
     monkeypatch.setattr(scan_geometry, "calibrate_descan_image_plane", lambda s: pytest.fail("Unconsumed downstream Descan"))
-    assert scan_geometry.calibrate_scan_system(state, observation_stop_z_mm=first_ac-1.) is None
-    assert not calls
-    result = scan_geometry.calibrate_scan_system(state, observation_stop_z_mm=(first_ac+first_descan)/2.)
-    assert calls == ["ac"] and result[2] is None
+    # Ending exactly at the leading face consumes no finite field length.
+    for stop in (np.nextafter(first_ac, -np.inf), first_ac):
+        assert scan_geometry.calibrate_scan_system(state, observation_stop_z_mm=stop) is None
+        assert not calls
+    # Calibration starts inside the finite coil, before its centre. The old
+    # centre-minus-1 mm stop already lay inside the 15 mm AC field.
+    for stop in (np.nextafter(first_ac, np.inf), ac_centre - 1.,
+                 np.nextafter(first_descan, -np.inf), first_descan):
+        calls.clear()
+        result = scan_geometry.calibrate_scan_system(state, observation_stop_z_mm=stop)
+        assert calls == ["ac"] and result[2] is None
+    descan_result = object()
+    monkeypatch.setattr(scan_geometry, "calibrate_descan_image_plane",
+                        lambda s: calls.append("descan") or descan_result)
+    calls.clear()
+    result = scan_geometry.calibrate_scan_system(
+        state, observation_stop_z_mm=np.nextafter(first_descan, np.inf))
+    assert calls == ["ac", "descan"] and result[2] is descan_result
 
 
 def test_scan_rejects_target_before_any_inserted_detector(material_case, monkeypatch):
