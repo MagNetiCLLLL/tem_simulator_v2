@@ -92,7 +92,10 @@ jobs:
       - name: Run declared scope with one numerical thread
         # Hosted Windows runners have no CUDA device. Keep real-GPU tests in
         # collection and report normal skips as NOT_RUN, never as GPU success.
-        run: python scripts/validate_classical_scope.py --scope ${{ matrix.scope }} --output outputs/agent-validation/${{ matrix.scope }} --timeout-seconds 1800 --allow-gpu-skips
+        # The 1,292-case UI scope passed in ~1,224 s on one runner but reached
+        # only 97% at 1,800 s on another. Retain every check with bounded
+        # runner headroom; the other scopes keep their existing 30-minute cap.
+        run: python scripts/validate_classical_scope.py --scope ${{ matrix.scope }} --output outputs/agent-validation/${{ matrix.scope }} --timeout-seconds ${{ matrix.scope == 'field-ui' && 2700 || 1800 }} --allow-gpu-skips
       - name: Retain scope evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
